@@ -13,7 +13,6 @@ interface SignupRequest {
   }
 }
 
-
 interface SignupResponse {
   success: boolean
   user?: any
