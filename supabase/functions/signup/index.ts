@@ -56,17 +56,19 @@ serve(async (req: Request) => {
     // 3. Check if user already exists
     const { data: existingUser, error: userError } = await supabaseClient.auth.admin.listUsers({
       filter: {
-        email: requestData.email
+        email: requestData.email.trim().toLowerCase()
       }
     })
     
     if (userError) throw userError
     
-    if (existingUser?.users && existingUser.users.length > 0) {
+    console.log('Existing user check result:', JSON.stringify(existingUser))
+    
+    if (existingUser?.users?.length > 0) {
       return new Response(
         JSON.stringify({ 
           success: false, 
-          error: 'User already exists' 
+          error: `User with email ${requestData.email} already exists` 
         } as ApiResponse<null>),
         { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
