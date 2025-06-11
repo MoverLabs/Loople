@@ -89,29 +89,7 @@ serve(async (req: Request) => {
 
     if (authError) throw authError
 
-    // Create user record in the public.users table
-    const { error: dbUserError } = await supabaseClient
-      .from('users')
-      .insert({
-        id: authData.user?.id, // This links to auth.users
-        email: requestData.email,
-        first_name: requestData.data.first_name,
-        last_name: requestData.data.last_name,
-        phone: requestData.data.phone,
-        is_active: true,
-        role_id: 1, // Default role ID for new users
-        created_at: new Date(),
-        updated_at: new Date()
-      })
-      .select()
-      .single()
-
-    if (dbUserError) {
-      console.error('Error creating user record:', dbUserError)
-      throw dbUserError
-    }
-
-    // 5. If club creation data is provided, create a new club
+    // 5. If club creation data is provided, create a new club first
     let clubData: Club | undefined = undefined
     if (requestData.data.club_name && requestData.data.club_subdomain) {
       // Check if subdomain is available
@@ -151,23 +129,35 @@ serve(async (req: Request) => {
       }
 
       clubData = newClub
+    }
 
-      // Update user with club_id
-      const { error: updateUserError } = await supabaseClient
-        .from('users')
-        .update({ club_id: newClub.id })
-        .eq('id', authData.user?.id)
+    // Create user record in the public.users table
+    const { error: dbUserError } = await supabaseClient
+      .from('users')
+      .insert({
+        id: authData.user?.id, // This links to auth.users
+        email: requestData.email,
+        first_name: requestData.data.first_name,
+        last_name: requestData.data.last_name,
+        phone: requestData.data.phone,
+        is_active: true,
+        role_id: 1, // Default role ID for new users
+        club_id: clubData?.id, // Set club_id if club was created
+        created_at: new Date(),
+        updated_at: new Date()
+      })
 
-      if (updateUserError) {
-        console.error('Error updating user club_id:', updateUserError)
-        throw updateUserError
-      }
+    if (dbUserError) {
+      console.error('Error creating user record:', dbUserError)
+      throw dbUserError
+    }
 
-      // Add user as member
+    // Add user as member if club was created
+    if (clubData) {
       const { error: memberError } = await supabaseClient
         .from('members')
         .insert({
-          club_id: newClub.id,
+          club_id: clubData.id,
           user_id: authData.user?.id,
           first_name: requestData.data.first_name,
           last_name: requestData.data.last_name,
@@ -175,8 +165,6 @@ serve(async (req: Request) => {
           phone: requestData.data.phone,
           date_of_birth: requestData.data.birth_date ? new Date(requestData.data.birth_date) : undefined,
           member_type: MemberType.INDIVIDUAL,
-          // membership_status: MembershipStatus.ACTIVE,
-          // membership_start_date: new Date(),
           created_at: new Date(),
           updated_at: new Date()
         })

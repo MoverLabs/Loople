@@ -150,6 +150,10 @@ CREATE POLICY "Users can update their own data"
     ON users FOR UPDATE
     USING (id::text = auth.uid()::text);
 
+CREATE POLICY "Users can insert their own data"
+    ON users FOR INSERT
+    WITH CHECK (id::text = auth.uid()::text);
+
 -- RLS Policies for clubs table
 CREATE POLICY "Clubs can be created by authenticated users"
     ON clubs FOR INSERT
