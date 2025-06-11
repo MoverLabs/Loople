@@ -1,7 +1,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
-import { Club, User, ApiResponse, ParticipantRole } from '../_shared/types.ts'
+import { Club, User, ApiResponse, ParticipantRole, MemberType, MembershipStatus } from '../_shared/types.ts'
 
 // Define TypeScript interfaces for request and response
 interface SignupRequest {
@@ -11,9 +11,9 @@ interface SignupRequest {
     first_name: string
     last_name: string
     phone?: string
-    birth_date?: string
     club_name?: string // Optional for club creation
     club_subdomain?: string // Optional for club creation
+    birth_date?: string
   }
 }
 
@@ -89,6 +89,26 @@ serve(async (req: Request) => {
 
     if (authError) throw authError
 
+    // Create user record in the public.users table
+    const { error: dbUserError } = await supabaseClient
+      .from('users')
+      .insert({
+        id: authData.user?.id, // This links to auth.users
+        email: requestData.email,
+        first_name: requestData.data.first_name,
+        last_name: requestData.data.last_name,
+        phone: requestData.data.phone,
+        is_active: true,
+        role_id: 1, // Default role ID for new users
+        created_at: new Date(),
+        updated_at: new Date()
+      })
+
+    if (dbUserError) {
+      console.error('Error creating user record:', dbUserError)
+      throw dbUserError
+    }
+
     // 5. If club creation data is provided, create a new club
     let clubData: Club | undefined = undefined
     if (requestData.data.club_name && requestData.data.club_subdomain) {
@@ -115,25 +135,54 @@ serve(async (req: Request) => {
         .insert({
           name: requestData.data.club_name,
           subdomain: requestData.data.club_subdomain,
-          created_by: authData.user?.id,
-          onboarding_completed: false
+          owner_id: authData.user?.id, // Link to the user who created the club
+          onboarding_completed: false,
+          created_at: new Date(),
+          updated_at: new Date()
         })
         .select()
         .single()
 
-      if (clubError) throw clubError
+      if (clubError) {
+        console.error('Club creation error:', clubError)
+        throw clubError
+      }
+
       clubData = newClub
 
-      // Add user as club admin
+      // Update user's club_id
+      const { error: updateUserError } = await supabaseClient
+        .from('users')
+        .update({ club_id: newClub.id })
+        .eq('id', authData.user?.id)
+
+      if (updateUserError) {
+        console.error('Error updating user club_id:', updateUserError)
+        throw updateUserError
+      }
+
+      // Add user as club admin in members
       const { error: memberError } = await supabaseClient
-        .from('club_members')
+        .from('members')
         .insert({
           club_id: newClub.id,
           user_id: authData.user?.id,
-          role: ParticipantRole.ADMIN
+          first_name: requestData.data.first_name,
+          last_name: requestData.data.last_name,
+          email: requestData.email,
+          phone: requestData.data.phone,
+          date_of_birth: requestData.data.birth_date ? new Date(requestData.data.birth_date) : undefined,
+          member_type: MemberType.INDIVIDUAL,
+          // membership_status: MembershipStatus.ACTIVE,
+          // membership_start_date: new Date(),
+          created_at: new Date(),
+          updated_at: new Date()
         })
 
-      if (memberError) throw memberError
+      if (memberError) {
+        console.error('Member creation error:', memberError)
+        throw memberError
+      }
     }
 
     // 6. Return successful response
@@ -143,7 +192,14 @@ serve(async (req: Request) => {
         email: authData.user?.email ?? '',
         name: authData.user?.user_metadata?.full_name ?? ''
       },
-      club: clubData
+      club: clubData ? {
+        id: clubData.id,
+        name: clubData.name,
+        subdomain: clubData.subdomain,
+        created_at: clubData.created_at,
+        updated_at: clubData.updated_at,
+        onboarding_completed: clubData.onboarding_completed
+      } : undefined
     }
 
     return new Response(

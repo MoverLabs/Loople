@@ -50,6 +50,7 @@ export enum RegistrationStatus {
 }
 
 // Database Tables
+// clubs table
 export interface Club {
   id: number
   name: string
@@ -71,6 +72,7 @@ export interface Club {
   updated_at: Date
 }
 
+// events table
 export interface Event {
   id: number
   club_id: number
@@ -90,6 +92,7 @@ export interface Event {
   updated_at: Date
 }
 
+// members table
 export interface Member {
   id: number
   club_id: number
@@ -109,6 +112,7 @@ export interface Member {
   updated_at: Date
 }
 
+// program_memberships table
 export interface ProgramMembership {
   id: number
   program_id: number
@@ -122,6 +126,7 @@ export interface ProgramMembership {
   updated_at: Date
 }
 
+// programs table
 export interface Program {
   id: number
   club_id: number
@@ -140,6 +145,7 @@ export interface Program {
   updated_at: Date
 }
 
+// roles table
 export interface Role {
   id: number
   name: string
@@ -150,6 +156,7 @@ export interface Role {
   updated_at: Date
 }
 
+// users table
 export interface User {
   id: string
   club_id: number
