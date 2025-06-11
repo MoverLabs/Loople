@@ -54,17 +54,17 @@ serve(async (req: Request) => {
     )
 
     // 3. Check if user already exists
-    const { data: existingUser, error: userError } = await supabaseClient.auth.admin.listUsers({
-      filter: {
-        email: requestData.email.trim().toLowerCase()
-      }
-    })
+    const { data: existingUser, error: userError } = await supabaseClient
+      .from('users')
+      .select('id, email')
+      .eq('email', requestData.email.trim().toLowerCase())
+      .single()
     
-    if (userError) throw userError
+    if (userError && userError.code !== 'PGRST116') { // PGRST116 is the "not found" error
+      throw userError
+    }
     
-    console.log('Existing user check result:', JSON.stringify(existingUser))
-    
-    if (existingUser?.users?.length > 0) {
+    if (existingUser) {
       return new Response(
         JSON.stringify({ 
           success: false, 
