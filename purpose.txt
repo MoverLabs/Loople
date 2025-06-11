@@ -1,0 +1,27 @@
+Backend Requirements - Swim Club Platform
+Core Architecture:
+    •    Multi-tenant: Each club gets their own subdomain with completely isolated data
+    •    Users belong to clubs with different permission levels (admin, member, swimmer)
+    •    Self-serve onboarding: Clubs sign up and configure themselves without our help
+Main Features:
+    •    Club Management: Onboarding flow, settings, member import via CSV
+    •    Events: Create events, set pricing, manage registrations, waitlists
+    •    Payments: Stripe Connect integration, membership dues, event fees, refunds
+    •    Members: Individual/family accounts, categories, emergency contacts
+    •    Messaging: Club announcements, direct messages, group chats
+    •    Reports: Registration data, financials, member analytics
+User Roles:
+    •    Club Admin: Everything - manage club, create events, handle money, message anyone
+    •    Members: Register for events, pay dues, message other members
+    •    Swimmers: Basic access (often kids whose parents manage their account)
+Tech Stack:
+    •    Supabase (database, auth, real-time, file storage)
+    •    Stripe Connect (multi-party payments)
+    •    RESTful API design
+    •    Staging + production environments
+Development Approach:
+    •    Build API-first, test everything in Postman before frontend
+    •    Start with club onboarding → member management → events → payments → messaging
+    •    Focus on data isolation and proper permissions from day one
+Key Complexity:
+Making sure Club A can never see Club B’s data while keeping the system simple to use and maintain.

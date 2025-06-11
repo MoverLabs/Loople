@@ -1,8 +1,10 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
+import { Club, ApiResponse } from '../_shared/types.ts'
 
-interface ClubData {
+// Request type for club creation
+interface CreateClubRequest {
   name: string
   subdomain: string
   description: string
@@ -41,7 +43,7 @@ serve(async (req) => {
 
     if (userError || !user) {
       return new Response(
-        JSON.stringify({ error: 'Unauthorized' }),
+        JSON.stringify({ success: false, error: 'Unauthorized' } as ApiResponse<null>),
         {
           status: 401,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -50,7 +52,7 @@ serve(async (req) => {
     }
 
     // Get request body
-    const requestData: ClubData = await req.json()
+    const requestData: CreateClubRequest = await req.json()
 
     // Validate required fields
     const requiredFields = [
@@ -64,12 +66,15 @@ serve(async (req) => {
       'state',
       'zip_code',
       'owner_id',
-    ]
+    ] as const
 
     for (const field of requiredFields) {
-      if (!requestData[field as keyof ClubData]) {
+      if (!requestData[field]) {
         return new Response(
-          JSON.stringify({ error: `Missing required field: ${field}` }),
+          JSON.stringify({ 
+            success: false, 
+            error: `Missing required field: ${field}` 
+          } as ApiResponse<null>),
           {
             status: 400,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -82,7 +87,10 @@ serve(async (req) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(requestData.contact_email)) {
       return new Response(
-        JSON.stringify({ error: 'Invalid email format' }),
+        JSON.stringify({ 
+          success: false, 
+          error: 'Invalid email format' 
+        } as ApiResponse<null>),
         {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -94,7 +102,10 @@ serve(async (req) => {
     const phoneRegex = /^\(\d{3}\) \d{3}-\d{4}$/
     if (!phoneRegex.test(requestData.contact_phone)) {
       return new Response(
-        JSON.stringify({ error: 'Invalid phone format. Use format: (XXX) XXX-XXXX' }),
+        JSON.stringify({ 
+          success: false, 
+          error: 'Invalid phone format. Use format: (XXX) XXX-XXXX' 
+        } as ApiResponse<null>),
         {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -111,7 +122,10 @@ serve(async (req) => {
 
     if (subdomainError && subdomainError.code !== 'PGRST116') {
       return new Response(
-        JSON.stringify({ error: 'Error checking subdomain availability' }),
+        JSON.stringify({ 
+          success: false, 
+          error: 'Error checking subdomain availability' 
+        } as ApiResponse<null>),
         {
           status: 500,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -121,7 +135,10 @@ serve(async (req) => {
 
     if (existingClub) {
       return new Response(
-        JSON.stringify({ error: 'Subdomain already taken' }),
+        JSON.stringify({ 
+          success: false, 
+          error: 'Subdomain already taken' 
+        } as ApiResponse<null>),
         {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -145,7 +162,10 @@ serve(async (req) => {
 
     if (createError) {
       return new Response(
-        JSON.stringify({ error: 'Error creating club' }),
+        JSON.stringify({ 
+          success: false, 
+          error: 'Error creating club' 
+        } as ApiResponse<null>),
         {
           status: 500,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -154,7 +174,10 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ data: club }),
+      JSON.stringify({ 
+        success: true, 
+        data: club 
+      } as ApiResponse<Club>),
       {
         status: 201,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -162,7 +185,10 @@ serve(async (req) => {
     )
   } catch (error) {
     return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
+      JSON.stringify({ 
+        success: false, 
+        error: 'Internal server error' 
+      } as ApiResponse<null>),
       {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
