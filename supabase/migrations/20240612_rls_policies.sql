@@ -1,3 +1,38 @@
+-- Drop existing policies if they exist
+DO $$ 
+BEGIN
+    -- Drop policies for programs
+    DROP POLICY IF EXISTS "Service role bypass" ON programs;
+    DROP POLICY IF EXISTS "Programs are viewable by club members" ON programs;
+    DROP POLICY IF EXISTS "Programs are manageable by club admins" ON programs;
+
+    -- Drop policies for members
+    DROP POLICY IF EXISTS "Service role bypass" ON members;
+    DROP POLICY IF EXISTS "Members are viewable by club members" ON members;
+    DROP POLICY IF EXISTS "Members are manageable by club admins" ON members;
+
+    -- Drop policies for program_memberships
+    DROP POLICY IF EXISTS "Service role bypass" ON program_memberships;
+    DROP POLICY IF EXISTS "Program memberships are viewable by club members" ON program_memberships;
+    DROP POLICY IF EXISTS "Program memberships are manageable by club admins" ON program_memberships;
+
+    -- Drop policies for users
+    DROP POLICY IF EXISTS "Service role bypass" ON users;
+    DROP POLICY IF EXISTS "Users can view their own data" ON users;
+    DROP POLICY IF EXISTS "Users can update their own data" ON users;
+
+    -- Drop policies for events
+    DROP POLICY IF EXISTS "Service role bypass" ON events;
+
+    -- Drop policies for roles
+    DROP POLICY IF EXISTS "Service role bypass" ON roles;
+
+    -- Drop policies for clubs
+    DROP POLICY IF EXISTS "Clubs can be created by authenticated users" ON clubs;
+    DROP POLICY IF EXISTS "Clubs are viewable by members" ON clubs;
+    DROP POLICY IF EXISTS "Clubs are manageable by admins" ON clubs;
+END $$;
+
 -- Enable RLS on additional tables
 ALTER TABLE programs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE members ENABLE ROW LEVEL SECURITY;
@@ -6,15 +41,39 @@ ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE roles ENABLE ROW LEVEL SECURITY;
 
+-- Service role bypass for all tables
+CREATE POLICY "Service role bypass"
+    ON programs FOR ALL
+    USING (auth.role() = 'service_role');
+
+CREATE POLICY "Service role bypass"
+    ON members FOR ALL
+    USING (auth.role() = 'service_role');
+
+CREATE POLICY "Service role bypass"
+    ON program_memberships FOR ALL
+    USING (auth.role() = 'service_role');
+
+CREATE POLICY "Service role bypass"
+    ON users FOR ALL
+    USING (auth.role() = 'service_role');
+
+CREATE POLICY "Service role bypass"
+    ON events FOR ALL
+    USING (auth.role() = 'service_role');
+
+CREATE POLICY "Service role bypass"
+    ON roles FOR ALL
+    USING (auth.role() = 'service_role');
+
 -- RLS Policies for programs table
 CREATE POLICY "Programs are viewable by club members"
     ON programs FOR SELECT
     USING (
         EXISTS (
-            SELECT 1 FROM users
-            WHERE users.club_id = programs.club_id
-            AND users.id::text = auth.uid()::text
-            AND users.is_active = true
+            SELECT 1 FROM members
+            WHERE members.club_id = programs.club_id
+            AND members.user_id::text = auth.uid()::text
         )
     );
 
@@ -22,11 +81,11 @@ CREATE POLICY "Programs are manageable by club admins"
     ON programs FOR ALL
     USING (
         EXISTS (
-            SELECT 1 FROM users u
+            SELECT 1 FROM members m
+            JOIN users u ON u.id = m.user_id
             JOIN roles r ON r.id = u.role_id
-            WHERE u.club_id = programs.club_id
-            AND u.id::text = auth.uid()::text
-            AND u.is_active = true
+            WHERE m.club_id = programs.club_id
+            AND m.user_id::text = auth.uid()::text
             AND r.permissions->>'can_manage_programs' = 'true'
         )
     );
@@ -36,10 +95,9 @@ CREATE POLICY "Members are viewable by club members"
     ON members FOR SELECT
     USING (
         EXISTS (
-            SELECT 1 FROM users
-            WHERE users.club_id = members.club_id
-            AND users.id::text = auth.uid()::text
-            AND users.is_active = true
+            SELECT 1 FROM members m
+            WHERE m.club_id = members.club_id
+            AND m.user_id::text = auth.uid()::text
         )
     );
 
@@ -47,11 +105,11 @@ CREATE POLICY "Members are manageable by club admins"
     ON members FOR ALL
     USING (
         EXISTS (
-            SELECT 1 FROM users u
+            SELECT 1 FROM members m
+            JOIN users u ON u.id = m.user_id
             JOIN roles r ON r.id = u.role_id
-            WHERE u.club_id = members.club_id
-            AND u.id::text = auth.uid()::text
-            AND u.is_active = true
+            WHERE m.club_id = members.club_id
+            AND m.user_id::text = auth.uid()::text
             AND r.permissions->>'can_manage_members' = 'true'
         )
     );
@@ -61,12 +119,11 @@ CREATE POLICY "Program memberships are viewable by club members"
     ON program_memberships FOR SELECT
     USING (
         EXISTS (
-            SELECT 1 FROM users
-            WHERE users.club_id = (
+            SELECT 1 FROM members m
+            WHERE m.club_id = (
                 SELECT club_id FROM programs WHERE id = program_memberships.program_id
             )
-            AND users.id::text = auth.uid()::text
-            AND users.is_active = true
+            AND m.user_id::text = auth.uid()::text
         )
     );
 
@@ -74,73 +131,50 @@ CREATE POLICY "Program memberships are manageable by club admins"
     ON program_memberships FOR ALL
     USING (
         EXISTS (
-            SELECT 1 FROM users u
+            SELECT 1 FROM members m
+            JOIN users u ON u.id = m.user_id
             JOIN roles r ON r.id = u.role_id
-            JOIN programs p ON p.club_id = u.club_id
+            JOIN programs p ON p.club_id = m.club_id
             WHERE p.id = program_memberships.program_id
-            AND u.id::text = auth.uid()::text
-            AND u.is_active = true
+            AND m.user_id::text = auth.uid()::text
             AND r.permissions->>'can_manage_programs' = 'true'
         )
     );
 
 -- RLS Policies for users table
-CREATE POLICY "Users are viewable by club members"
+CREATE POLICY "Users can view their own data"
     ON users FOR SELECT
-    USING (
-        EXISTS (
-            SELECT 1 FROM users u
-            WHERE u.club_id = users.club_id
-            AND u.id::text = auth.uid()::text
-            AND u.is_active = true
-        )
-    );
+    USING (id::text = auth.uid()::text);
 
-CREATE POLICY "Users are manageable by club admins"
-    ON users FOR ALL
-    USING (
-        EXISTS (
-            SELECT 1 FROM users u
-            JOIN roles r ON r.id = u.role_id
-            WHERE u.club_id = users.club_id
-            AND u.id::text = auth.uid()::text
-            AND u.is_active = true
-            AND r.permissions->>'can_manage_users' = 'true'
-        )
-    );
+CREATE POLICY "Users can update their own data"
+    ON users FOR UPDATE
+    USING (id::text = auth.uid()::text);
 
--- Improve existing policies
-
--- Add INSERT policy for clubs
+-- RLS Policies for clubs table
 CREATE POLICY "Clubs can be created by authenticated users"
     ON clubs FOR INSERT
     WITH CHECK (auth.uid() IS NOT NULL);
 
--- Add DELETE policy for clubs
-CREATE POLICY "Clubs can be deleted by their admins"
-    ON clubs FOR DELETE
+CREATE POLICY "Clubs are viewable by members"
+    ON clubs FOR SELECT
     USING (
         EXISTS (
-            SELECT 1 FROM users u
-            JOIN roles r ON r.id = u.role_id
-            WHERE u.club_id = clubs.id
-            AND u.id::text = auth.uid()::text
-            AND u.is_active = true
-            AND r.permissions->>'can_manage_club' = 'true'
+            SELECT 1 FROM members
+            WHERE members.club_id = clubs.id
+            AND members.user_id::text = auth.uid()::text
         )
     );
 
--- Add DELETE policy for events
-CREATE POLICY "Events can be deleted by club admins"
-    ON events FOR DELETE
+CREATE POLICY "Clubs are manageable by admins"
+    ON clubs FOR ALL
     USING (
         EXISTS (
-            SELECT 1 FROM users u
+            SELECT 1 FROM members m
+            JOIN users u ON u.id = m.user_id
             JOIN roles r ON r.id = u.role_id
-            WHERE u.club_id = events.club_id
-            AND u.id::text = auth.uid()::text
-            AND u.is_active = true
-            AND r.permissions->>'can_manage_events' = 'true'
+            WHERE m.club_id = clubs.id
+            AND m.user_id::text = auth.uid()::text
+            AND r.permissions->>'can_manage_club' = 'true'
         )
     );
 
@@ -149,10 +183,9 @@ CREATE OR REPLACE FUNCTION is_club_member(club_id UUID)
 RETURNS BOOLEAN AS $$
 BEGIN
     RETURN EXISTS (
-        SELECT 1 FROM users
-        WHERE users.club_id = $1
-        AND users.id::text = auth.uid()::text
-        AND users.is_active = true
+        SELECT 1 FROM members
+        WHERE members.club_id = $1
+        AND members.user_id::text = auth.uid()::text
     );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -162,11 +195,11 @@ CREATE OR REPLACE FUNCTION is_club_admin(club_id UUID)
 RETURNS BOOLEAN AS $$
 BEGIN
     RETURN EXISTS (
-        SELECT 1 FROM users u
+        SELECT 1 FROM members m
+        JOIN users u ON u.id = m.user_id
         JOIN roles r ON r.id = u.role_id
-        WHERE u.club_id = $1
-        AND u.id::text = auth.uid()::text
-        AND u.is_active = true
+        WHERE m.club_id = $1
+        AND m.user_id::text = auth.uid()::text
         AND r.permissions->>'can_manage_club' = 'true'
     );
 END;

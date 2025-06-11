@@ -103,6 +103,8 @@ serve(async (req: Request) => {
         created_at: new Date(),
         updated_at: new Date()
       })
+      .select()
+      .single()
 
     if (dbUserError) {
       console.error('Error creating user record:', dbUserError)
@@ -135,7 +137,7 @@ serve(async (req: Request) => {
         .insert({
           name: requestData.data.club_name,
           subdomain: requestData.data.club_subdomain,
-          owner_id: authData.user?.id, // Link to the user who created the club
+          owner_id: authData.user?.id,
           onboarding_completed: false,
           created_at: new Date(),
           updated_at: new Date()
@@ -150,7 +152,7 @@ serve(async (req: Request) => {
 
       clubData = newClub
 
-      // Update user's club_id
+      // Update user with club_id
       const { error: updateUserError } = await supabaseClient
         .from('users')
         .update({ club_id: newClub.id })
@@ -161,7 +163,7 @@ serve(async (req: Request) => {
         throw updateUserError
       }
 
-      // Add user as club admin in members
+      // Add user as member
       const { error: memberError } = await supabaseClient
         .from('members')
         .insert({
