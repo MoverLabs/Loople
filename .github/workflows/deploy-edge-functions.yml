@@ -40,8 +40,16 @@ jobs:
       
       - name: Install Supabase CLI
         run: |
-          curl -fsSL https://cli.supabase.com | sh
-          sudo mv ./supabase /usr/local/bin/
+          # Download the latest release
+          curl -L https://github.com/supabase/cli/releases/download/v1.142.2/supabase_1.142.2_linux_amd64.tar.gz -o supabase.tar.gz
+          # Extract the binary
+          tar xzf supabase.tar.gz
+          # Move to bin directory
+          sudo mv supabase /usr/local/bin/
+          # Clean up
+          rm supabase.tar.gz
+          # Verify installation
+          supabase --version
       
       - name: Deploy Edge Functions
         env:
