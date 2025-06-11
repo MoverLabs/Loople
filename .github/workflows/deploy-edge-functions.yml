@@ -12,12 +12,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
       
       - name: Debug directory structure
         run: |
-          pwd
+          echo "Current directory: $(pwd)"
+          echo "Directory contents:"
           ls -la
+          echo "Git status:"
+          git status
+          echo "Git log:"
+          git log -n 1
+          echo "Checking supabase directory:"
           ls -la supabase || echo "supabase directory not found"
+          if [ -d "supabase" ]; then
+            echo "Contents of supabase directory:"
+            ls -la supabase/
+            echo "Contents of supabase/functions directory:"
+            ls -la supabase/functions/
+          fi
       
       - name: Set up Deno
         uses: denoland/setup-deno@v1
@@ -36,6 +50,8 @@ jobs:
         run: |
           if [ ! -d "supabase" ]; then
             echo "Error: supabase directory not found"
+            echo "Current directory contents:"
+            ls -la
             exit 1
           fi
           
