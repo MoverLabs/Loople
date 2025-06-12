@@ -53,23 +53,13 @@ async function cleanupResources(
       // Delete from users table
       await supabaseClient.from("users").delete().eq("id", userId);
       
-      // Delete from auth.users using admin API
-      const { error: deleteError } = await supabaseClient
-        .from('auth.users')
-        .delete()
-        .eq('id', userId)
-        .select();
-
+      // Delete from auth.users using the RPC function
+      const { error: deleteError } = await supabaseClient.rpc('delete_auth_user', {
+        user_id: userId
+      });
+      
       if (deleteError) {
         console.error("Error deleting user from auth.users:", deleteError);
-        // Try direct SQL if the above fails
-        const { error: sqlError } = await supabaseClient.rpc('delete_auth_user', {
-          user_id: userId
-        });
-        
-        if (sqlError) {
-          console.error("Error deleting user from auth.users (SQL method):", sqlError);
-        }
       }
     }
     console.log("Cleanup completed successfully");
