@@ -20,16 +20,22 @@ BEGIN
     END LOOP;
 END $$;
 
--- Create delete_user function for cleanup
-CREATE OR REPLACE FUNCTION delete_user(user_id uuid)
+-- Create function for direct auth user deletion
+CREATE OR REPLACE FUNCTION delete_auth_user(user_id uuid)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, auth
 AS $$
 BEGIN
-  -- Delete from auth.users
+  -- Delete from auth.users with proper schema reference
   DELETE FROM auth.users WHERE id = user_id;
+  
+  -- Also delete from auth.identities if exists
+  DELETE FROM auth.identities WHERE user_id = user_id;
+  
+  -- Delete from auth.sessions if exists
+  DELETE FROM auth.sessions WHERE user_id = user_id;
 END;
 $$;
 

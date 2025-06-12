@@ -52,21 +52,23 @@ async function cleanupResources(
       await supabaseClient.from("members").delete().eq("user_id", userId);
       // Delete from users table
       await supabaseClient.from("users").delete().eq("id", userId);
-      // Delete from auth.users using the correct admin API
-      const { error: deleteUserError } = await supabaseClient.rpc('delete_user', {
-        user_id: userId
-      });
       
-      if (deleteUserError) {
-        console.error("Error deleting user from auth.users:", deleteUserError);
-        // Try alternative method if RPC fails
-        const { error: deleteError } = await supabaseClient
-          .from('auth.users')
-          .delete()
-          .eq('id', userId);
-          
-        if (deleteError) {
-          console.error("Error deleting user from auth.users (alternative method):", deleteError);
+      // Delete from auth.users using admin API
+      const { error: deleteError } = await supabaseClient
+        .from('auth.users')
+        .delete()
+        .eq('id', userId)
+        .select();
+
+      if (deleteError) {
+        console.error("Error deleting user from auth.users:", deleteError);
+        // Try direct SQL if the above fails
+        const { error: sqlError } = await supabaseClient.rpc('delete_auth_user', {
+          user_id: userId
+        });
+        
+        if (sqlError) {
+          console.error("Error deleting user from auth.users (SQL method):", sqlError);
         }
       }
     }
