@@ -33,11 +33,58 @@ interface SignupResponseData {
   club?: Club;
 }
 
+// Helper function to clean up resources in case of error
+async function cleanupResources(
+  supabaseClient: any,
+  userId?: string,
+  clubId?: string
+) {
+  console.log("Starting cleanup process...");
+  try {
+    if (clubId) {
+      console.log("Cleaning up club:", clubId);
+      await supabaseClient.from("clubs").delete().eq("id", clubId);
+    }
+
+    if (userId) {
+      console.log("Cleaning up user records:", userId);
+      // Delete from members table
+      await supabaseClient.from("members").delete().eq("user_id", userId);
+      // Delete from users table
+      await supabaseClient.from("users").delete().eq("id", userId);
+      // Delete from auth.users using the correct admin API
+      const { error: deleteUserError } = await supabaseClient.rpc('delete_user', {
+        user_id: userId
+      });
+      
+      if (deleteUserError) {
+        console.error("Error deleting user from auth.users:", deleteUserError);
+        // Try alternative method if RPC fails
+        const { error: deleteError } = await supabaseClient
+          .from('auth.users')
+          .delete()
+          .eq('id', userId);
+          
+        if (deleteError) {
+          console.error("Error deleting user from auth.users (alternative method):", deleteError);
+        }
+      }
+    }
+    console.log("Cleanup completed successfully");
+  } catch (error) {
+    console.error("Error during cleanup:", error);
+    // We don't throw here as this is already in an error handling path
+  }
+}
+
 serve(async (req: Request) => {
   // Handle CORS
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+
+  let createdUserId: string | undefined;
+  let createdClubId: string | undefined;
 
   try {
     console.log("Starting signup process...");
@@ -107,7 +154,8 @@ serve(async (req: Request) => {
           data: {
             ...requestData.data,
             full_name: `${requestData.data.first_name} ${requestData.data.last_name}`,
-            role: ParticipantRole.ADMIN, // Default role for this signup endpoint
+            // Only set as admin if creating a club
+            role: requestData.data.club_name ? ParticipantRole.ADMIN : ParticipantRole.MEMBER,
           },
         },
       });
@@ -116,7 +164,8 @@ serve(async (req: Request) => {
       console.error("Auth error:", authError);
       throw authError;
     }
-    console.log("User created successfully:", authData.user?.id);
+    createdUserId = authData.user?.id;
+    console.log("User created successfully:", createdUserId);
 
     // 5. If club creation data is provided, create a new club first
     let clubData: Club | undefined = undefined;
@@ -167,7 +216,8 @@ serve(async (req: Request) => {
         console.error("Club creation error:", clubError);
         throw clubError;
       }
-      console.log("Club created successfully:", newClub.id);
+      createdClubId = newClub.id;
+      console.log("Club created successfully:", createdClubId);
       clubData = newClub;
     }
 
@@ -180,7 +230,8 @@ serve(async (req: Request) => {
       last_name: requestData.data.last_name,
       phone: requestData.data.phone,
       is_active: true,
-      role_id: 1, // Default role ID for new users
+      // Set role_id based on whether user is creating a club
+      role_id: requestData.data.club_name ? 1 : 2, // 1 for Admin, 2 for Member
       club_id: clubData?.id,
       created_at: new Date(),
       updated_at: new Date(),
@@ -247,8 +298,14 @@ serve(async (req: Request) => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
-    // 7. Handle errors
+    // 7. Handle errors and cleanup
     console.error("Signup process failed:", error);
+    
+    // Clean up any created resources
+    if (createdUserId || createdClubId) {
+      await cleanupResources(supabaseClient, createdUserId, createdClubId);
+    }
+
     return new Response(
       JSON.stringify({
         success: false,
