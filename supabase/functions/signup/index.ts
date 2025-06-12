@@ -45,6 +45,17 @@ serve(async (req: Request) => {
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
+    
+    // Check if club name and subdomain are provided
+    if (!requestData.data.club_name || !requestData.data.club_subdomain) {
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: 'Club name and subdomain are required for signup' 
+        } as ApiResponse<null>),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
 
     // 2. Initialize Supabase client
     const supabaseClient = createClient(
@@ -90,15 +101,6 @@ serve(async (req: Request) => {
     if (authError) throw authError
 
     // 5. If club creation data is provided, create a new club first
-    if (!requestData.data.club_name || !requestData.data.club_subdomain) {
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: 'Club name and subdomain are required for signup' 
-        } as ApiResponse<null>),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
 
     // Check if subdomain is available
     const { data: existingClub } = await supabaseClient
