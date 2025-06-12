@@ -11,8 +11,8 @@ interface SignupRequest {
     first_name: string
     last_name: string
     phone?: string
-    club_name?: string // Optional for club creation
-    club_subdomain?: string // Optional for club creation
+    club_name: string // required for club creation
+    club_subdomain: string // required for club creation
     birth_date?: string
   }
 }
@@ -90,46 +90,53 @@ serve(async (req: Request) => {
     if (authError) throw authError
 
     // 5. If club creation data is provided, create a new club first
-    let clubData: Club | undefined = undefined
-    if (requestData.data.club_name && requestData.data.club_subdomain) {
-      // Check if subdomain is available
-      const { data: existingClub } = await supabaseClient
-        .from('clubs')
-        .select('id')
-        .eq('subdomain', requestData.data.club_subdomain)
-        .single()
-
-      if (existingClub) {
-        return new Response(
-          JSON.stringify({ 
-            success: false, 
-            error: 'Club subdomain already taken' 
-          } as ApiResponse<null>),
-          { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        )
-      }
-
-      // Create new club
-      const { data: newClub, error: clubError } = await supabaseClient
-        .from('clubs')
-        .insert({
-          name: requestData.data.club_name,
-          subdomain: requestData.data.club_subdomain,
-          owner_id: authData.user?.id,
-          onboarding_completed: false,
-          created_at: new Date(),
-          updated_at: new Date()
-        })
-        .select()
-        .single()
-
-      if (clubError) {
-        console.error('Club creation error:', clubError)
-        throw clubError
-      }
-
-      clubData = newClub
+    if (!requestData.data.club_name || !requestData.data.club_subdomain) {
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: 'Club name and subdomain are required for signup' 
+        } as ApiResponse<null>),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
     }
+
+    // Check if subdomain is available
+    const { data: existingClub } = await supabaseClient
+      .from('clubs')
+      .select('id')
+      .eq('subdomain', requestData.data.club_subdomain)
+      .single()
+
+    if (existingClub) {
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          error: 'Club subdomain already taken' 
+        } as ApiResponse<null>),
+        { status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // Create new club
+    const { data: newClub, error: clubError } = await supabaseClient
+      .from('clubs')
+      .insert({
+        name: requestData.data.club_name,
+        subdomain: requestData.data.club_subdomain,
+        owner_id: authData.user?.id,
+        onboarding_completed: false,
+        created_at: new Date(),
+        updated_at: new Date()
+      })
+      .select()
+      .single()
+
+    if (clubError) {
+      console.error('Club creation error:', clubError)
+      throw clubError
+    }
+
+    const clubData = newClub
 
     // Create user record in the public.users table
     const { error: dbUserError } = await supabaseClient
@@ -142,7 +149,7 @@ serve(async (req: Request) => {
         phone: requestData.data.phone,
         is_active: true,
         role_id: 1, // Default role ID for new users
-        club_id: clubData?.id, // Set club_id if club was created
+        club_id: clubData.id, // club_id is now required
         created_at: new Date(),
         updated_at: new Date()
       })
