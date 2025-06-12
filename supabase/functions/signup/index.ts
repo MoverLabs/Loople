@@ -174,12 +174,19 @@ serve(async (req: Request) => {
           phone: requestData.data.phone,
           date_of_birth: requestData.data.birth_date ? new Date(requestData.data.birth_date) : undefined,
           member_type: MemberType.INDIVIDUAL,
+          status: MembershipStatus.ACTIVE,
+          role: ParticipantRole.ADMIN,
           created_at: new Date(),
           updated_at: new Date()
         })
+        .select()
+        .single()
 
       if (memberError) {
         console.error('Member creation error:', memberError)
+        // If member creation fails, we should clean up the club and user
+        await supabaseClient.from('clubs').delete().eq('id', clubData.id)
+        await supabaseClient.from('users').delete().eq('id', authData.user?.id)
         throw memberError
       }
     }
