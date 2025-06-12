@@ -39,32 +39,54 @@ async function cleanupResources(
   userId?: string,
   clubId?: string
 ) {
-  console.log("Starting cleanup process...");
+  console.log("Starting cleanup process...", { userId, clubId });
   try {
     if (clubId) {
-      console.log("Cleaning up club:", clubId);
-      await supabaseClient.from("clubs").delete().eq("id", clubId);
+      console.log("Attempting to clean up club:", clubId);
+      const { error: clubError } = await supabaseClient.from("clubs").delete().eq("id", clubId);
+      if (clubError) {
+        console.error("Error cleaning up club:", clubError);
+      } else {
+        console.log("Successfully cleaned up club:", clubId);
+      }
     }
 
     if (userId) {
-      console.log("Cleaning up user records:", userId);
+      console.log("Attempting to clean up user records:", userId);
+      
       // Delete from members table
-      await supabaseClient.from("members").delete().eq("user_id", userId);
+      console.log("Deleting from members table...");
+      const { error: memberError } = await supabaseClient.from("members").delete().eq("user_id", userId);
+      if (memberError) {
+        console.error("Error deleting from members table:", memberError);
+      } else {
+        console.log("Successfully deleted from members table");
+      }
+
       // Delete from users table
-      await supabaseClient.from("users").delete().eq("id", userId);
+      console.log("Deleting from users table...");
+      const { error: userError } = await supabaseClient.from("users").delete().eq("id", userId);
+      if (userError) {
+        console.error("Error deleting from users table:", userError);
+      } else {
+        console.log("Successfully deleted from users table");
+      }
       
       // Delete from auth.users using the RPC function
+      console.log("Deleting from auth.users using RPC...");
       const { error: deleteError } = await supabaseClient.rpc('delete_auth_user', {
         user_id: userId
       });
       
       if (deleteError) {
         console.error("Error deleting user from auth.users:", deleteError);
+      } else {
+        console.log("Successfully deleted from auth.users");
       }
     }
-    console.log("Cleanup completed successfully");
+    console.log("Cleanup process completed");
   } catch (error) {
-    console.error("Error during cleanup:", error);
+    console.error("Error during cleanup process:", error);
     // We don't throw here as this is already in an error handling path
   }
 }
@@ -183,7 +205,9 @@ serve(async (req: Request) => {
         console.log("Subdomain already taken:", requestData.data.club_subdomain);
         // Clean up the auth user before returning error
         if (createdUserId) {
+          console.log("Starting cleanup due to existing subdomain...");
           await cleanupResources(supabaseClient, createdUserId);
+          console.log("Cleanup completed for existing subdomain case");
         }
         return new Response(
           JSON.stringify({
@@ -313,7 +337,9 @@ serve(async (req: Request) => {
     
     // Only clean up if we haven't already handled it in a specific case
     if (createdUserId || createdClubId) {
+      console.log("Starting cleanup in catch block...", { createdUserId, createdClubId });
       await cleanupResources(supabaseClient, createdUserId, createdClubId);
+      console.log("Cleanup completed in catch block");
     }
 
     return new Response(
