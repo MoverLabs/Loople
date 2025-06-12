@@ -77,6 +77,7 @@ serve(async (req: Request) => {
 
   let createdUserId: string | undefined;
   let createdClubId: string | undefined;
+  let supabaseClient: any;
 
   try {
     console.log("Starting signup process...");
@@ -102,7 +103,7 @@ serve(async (req: Request) => {
     }
 
     // 2. Initialize Supabase client
-    const supabaseClient = createClient(
+    supabaseClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
       { auth: { persistSession: false } }
@@ -172,11 +173,18 @@ serve(async (req: Request) => {
 
       if (subdomainError && subdomainError.code !== "PGRST116") {
         console.error("Error checking subdomain:", subdomainError);
+        if (createdUserId) {
+          await cleanupResources(supabaseClient, createdUserId);
+        }
         throw subdomainError;
       }
 
       if (existingClub) {
         console.log("Subdomain already taken:", requestData.data.club_subdomain);
+        // Clean up the auth user before returning error
+        if (createdUserId) {
+          await cleanupResources(supabaseClient, createdUserId);
+        }
         return new Response(
           JSON.stringify({
             success: false,
@@ -206,6 +214,10 @@ serve(async (req: Request) => {
 
       if (clubError) {
         console.error("Club creation error:", clubError);
+        // Clean up the auth user before throwing error
+        if (createdUserId) {
+          await cleanupResources(supabaseClient, createdUserId);
+        }
         throw clubError;
       }
       createdClubId = newClub.id;
@@ -231,6 +243,9 @@ serve(async (req: Request) => {
 
     if (dbUserError) {
       console.error("Error creating user record:", dbUserError);
+      if (createdUserId) {
+        await cleanupResources(supabaseClient, createdUserId, createdClubId);
+      }
       throw dbUserError;
     }
     console.log("User record created successfully");
@@ -257,6 +272,9 @@ serve(async (req: Request) => {
 
       if (memberError) {
         console.error("Member creation error:", memberError);
+        if (createdUserId) {
+          await cleanupResources(supabaseClient, createdUserId, createdClubId);
+        }
         throw memberError;
       }
       console.log("Member record created successfully");
@@ -293,7 +311,7 @@ serve(async (req: Request) => {
     // 7. Handle errors and cleanup
     console.error("Signup process failed:", error);
     
-    // Clean up any created resources
+    // Only clean up if we haven't already handled it in a specific case
     if (createdUserId || createdClubId) {
       await cleanupResources(supabaseClient, createdUserId, createdClubId);
     }
