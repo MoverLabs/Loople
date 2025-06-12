@@ -21,7 +21,9 @@ BEGIN
 END $$;
 
 -- Create function for direct auth user deletion
-CREATE OR REPLACE FUNCTION delete_auth_user(user_id uuid)
+DROP FUNCTION IF EXISTS delete_auth_user(uuid);
+
+CREATE OR REPLACE FUNCTION delete_auth_user(p_user_id uuid)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -29,13 +31,13 @@ SET search_path = public, auth
 AS $$
 BEGIN
   -- Delete from auth.users with proper schema reference
-  DELETE FROM auth.users WHERE id = user_id;
+  DELETE FROM auth.users WHERE id = p_user_id;
   
   -- Also delete from auth.identities if exists
-  DELETE FROM auth.identities WHERE user_id = user_id;
+  DELETE FROM auth.identities WHERE user_id = p_user_id;
   
   -- Delete from auth.sessions if exists
-  DELETE FROM auth.sessions WHERE user_id = user_id;
+  DELETE FROM auth.sessions WHERE user_id = p_user_id;
 END;
 $$;
 

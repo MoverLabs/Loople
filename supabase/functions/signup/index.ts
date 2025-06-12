@@ -75,7 +75,7 @@ async function cleanupResources(
       // Delete from auth.users using the RPC function
       console.log("Deleting from auth.users using RPC...");
       const { error: deleteError } = await supabaseClient.rpc('delete_auth_user', {
-        user_id: userId
+        p_user_id: userId
       });
       
       if (deleteError) {
