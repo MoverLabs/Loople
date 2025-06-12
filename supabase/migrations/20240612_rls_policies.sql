@@ -1,36 +1,23 @@
--- Drop existing policies if they exist
+-- First disable RLS on all tables
+ALTER TABLE programs DISABLE ROW LEVEL SECURITY;
+ALTER TABLE members DISABLE ROW LEVEL SECURITY;
+ALTER TABLE program_memberships DISABLE ROW LEVEL SECURITY;
+ALTER TABLE users DISABLE ROW LEVEL SECURITY;
+ALTER TABLE events DISABLE ROW LEVEL SECURITY;
+ALTER TABLE roles DISABLE ROW LEVEL SECURITY;
+ALTER TABLE clubs DISABLE ROW LEVEL SECURITY;
+
+-- Remove all existing policies
 DO $$ 
+DECLARE
+    r RECORD;
 BEGIN
-    -- Drop policies for programs
-    DROP POLICY IF EXISTS "Service role bypass" ON programs;
-    DROP POLICY IF EXISTS "Programs are viewable by club members" ON programs;
-    DROP POLICY IF EXISTS "Programs are manageable by club admins" ON programs;
-
-    -- Drop policies for members
-    DROP POLICY IF EXISTS "Service role bypass" ON members;
-    DROP POLICY IF EXISTS "Members are viewable by club members" ON members;
-    DROP POLICY IF EXISTS "Members are manageable by club admins" ON members;
-
-    -- Drop policies for program_memberships
-    DROP POLICY IF EXISTS "Service role bypass" ON program_memberships;
-    DROP POLICY IF EXISTS "Program memberships are viewable by club members" ON program_memberships;
-    DROP POLICY IF EXISTS "Program memberships are manageable by club admins" ON program_memberships;
-
-    -- Drop policies for users
-    DROP POLICY IF EXISTS "Service role bypass" ON users;
-    DROP POLICY IF EXISTS "Users can view their own data" ON users;
-    DROP POLICY IF EXISTS "Users can update their own data" ON users;
-
-    -- Drop policies for events
-    DROP POLICY IF EXISTS "Service role bypass" ON events;
-
-    -- Drop policies for roles
-    DROP POLICY IF EXISTS "Service role bypass" ON roles;
-
-    -- Drop policies for clubs
-    DROP POLICY IF EXISTS "Clubs can be created by authenticated users" ON clubs;
-    DROP POLICY IF EXISTS "Clubs are viewable by members" ON clubs;
-    DROP POLICY IF EXISTS "Clubs are manageable by admins" ON clubs;
+    FOR r IN (SELECT tablename, policyname 
+              FROM pg_policies 
+              WHERE schemaname = 'public')
+    LOOP
+        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', r.policyname, r.tablename);
+    END LOOP;
 END $$;
 
 -- Enable RLS on additional tables
@@ -40,6 +27,32 @@ ALTER TABLE program_memberships ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE roles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE clubs ENABLE ROW LEVEL SECURITY;
+
+-- Debug function to log policy checks
+CREATE OR REPLACE FUNCTION log_policy_check(
+    policy_name text,
+    table_name text,
+    operation text,
+    user_id text,
+    additional_info jsonb DEFAULT '{}'::jsonb
+) RETURNS void AS $$
+BEGIN
+    INSERT INTO policy_logs (policy_name, table_name, operation, user_id, additional_info, created_at)
+    VALUES (policy_name, table_name, operation, user_id, additional_info, now());
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Create policy_logs table if it doesn't exist
+CREATE TABLE IF NOT EXISTS policy_logs (
+    id SERIAL PRIMARY KEY,
+    policy_name text,
+    table_name text,
+    operation text,
+    user_id text,
+    additional_info jsonb,
+    created_at timestamptz DEFAULT now()
+);
 
 -- Service role bypass for all tables
 CREATE POLICY "Service role bypass"
@@ -94,23 +107,51 @@ CREATE POLICY "Programs are manageable by club admins"
 CREATE POLICY "Members are viewable by club members"
     ON members FOR SELECT
     USING (
-        EXISTS (
-            SELECT 1 FROM members m
-            WHERE m.club_id = members.club_id
-            AND m.user_id::text = auth.uid()::text
-        )
+        CASE 
+            WHEN auth.uid()::text = user_id::text THEN
+                true
+            WHEN EXISTS (
+                SELECT 1 FROM users u
+                JOIN roles r ON r.id = u.role_id
+                WHERE u.id::text = auth.uid()::text
+                AND r.permissions->>'can_manage_members' = 'true'
+                AND EXISTS (
+                    SELECT 1 FROM members m
+                    WHERE m.club_id = members.club_id
+                    AND m.user_id = u.id
+                )
+            ) THEN
+                true
+            ELSE
+                false
+        END
     );
 
 CREATE POLICY "Members are manageable by club admins"
     ON members FOR ALL
     USING (
         EXISTS (
-            SELECT 1 FROM members m
-            JOIN users u ON u.id = m.user_id
+            SELECT 1 FROM users u
             JOIN roles r ON r.id = u.role_id
-            WHERE m.club_id = members.club_id
-            AND m.user_id::text = auth.uid()::text
+            WHERE u.id::text = auth.uid()::text
             AND r.permissions->>'can_manage_members' = 'true'
+            AND EXISTS (
+                SELECT 1 FROM members m
+                WHERE m.club_id = members.club_id
+                AND m.user_id = u.id
+            )
+        )
+    );
+
+-- Special policy for signup process
+CREATE POLICY "Allow member creation during signup"
+    ON members FOR INSERT
+    WITH CHECK (
+        auth.uid()::text = user_id::text
+        AND EXISTS (
+            SELECT 1 FROM clubs c
+            WHERE c.id = club_id
+            AND c.owner_id::text = auth.uid()::text
         )
     );
 
