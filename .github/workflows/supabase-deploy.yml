@@ -7,6 +7,7 @@ on:
       - 'supabase/migrations/**'
       - 'supabase/functions/**'
       - 'supabase/config.toml'
+      - 'supabase/seed.sql'
   workflow_dispatch:
 
 jobs:
@@ -74,8 +75,29 @@ jobs:
           echo "Linking to Supabase project..."
           supabase link --project-ref "$SUPABASE_PROJECT_ID" --password "$SUPABASE_DB_PASSWORD"
           
-          echo "Pushing database changes..."
-          supabase db push
+          # Check for migration changes
+          if [ -d "supabase/migrations" ] && [ "$(ls -A supabase/migrations)" ]; then
+            echo "Found migrations, applying changes..."
+            # Use db push with --dry-run first to check for potential issues
+            echo "Performing dry run of migrations..."
+            if supabase db push --dry-run; then
+              echo "Dry run successful, applying migrations..."
+              supabase db push
+            else
+              echo "Dry run failed! Please check your migrations."
+              exit 1
+            fi
+          else
+            echo "No migrations found to apply."
+          fi
+          
+          # Apply seed data if it exists and we're not in production
+          if [ -f "supabase/seed.sql" ] && [ "${{ env.SUPABASE_BRANCH }}" != "main" ]; then
+            echo "Found seed.sql, applying seed data (non-production only)..."
+            supabase db reset --linked # This will apply migrations and seed data
+          elif [ -f "supabase/seed.sql" ] && [ "${{ env.SUPABASE_BRANCH }}" == "main" ]; then
+            echo "Skipping seed data in production environment"
+          fi
           
           # Deploy functions if they exist
           if [ -d "supabase/functions" ]; then
