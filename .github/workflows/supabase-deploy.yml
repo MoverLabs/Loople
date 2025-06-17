@@ -1,20 +1,23 @@
-# .github/workflows/deploy-edge-functions.yml
-name: Deploy Edge Functions
+name: Deploy Supabase Migrations
 
 on:
   push:
     branches: [main, staging]
     paths:
+      - 'supabase/migrations/**'
       - 'supabase/functions/**'
+      - 'supabase/config.toml'
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
-      
+
       - name: Debug directory structure
         run: |
           echo "Current directory: $(pwd)"
@@ -29,35 +32,33 @@ jobs:
           if [ -d "supabase" ]; then
             echo "Contents of supabase directory:"
             ls -la supabase/
-            echo "Contents of supabase/functions directory:"
-            ls -la supabase/functions/
+            echo "Contents of supabase/migrations directory:"
+            ls -la supabase/migrations/
           fi
-      
-      - name: Set up Deno
-        uses: denoland/setup-deno@v1
-        with:
-          deno-version: '1.35'
-      
-      - name: Install Supabase CLI
+
+      - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
         with:
           version: latest
-      
+
       - name: Set environment variables
         id: set-env
         run: |
           if [[ $GITHUB_REF == "refs/heads/main" ]]; then
             echo "SUPABASE_PROJECT_ID=${{ secrets.SUPABASE_PROJECT_ID_MAIN }}" >> $GITHUB_ENV
+            echo "SUPABASE_DB_PASSWORD=${{ secrets.SUPABASE_DB_PASSWORD_MAIN }}" >> $GITHUB_ENV
             echo "SUPABASE_BRANCH=main" >> $GITHUB_ENV
           elif [[ $GITHUB_REF == "refs/heads/staging" ]]; then
             echo "SUPABASE_PROJECT_ID=${{ secrets.SUPABASE_PROJECT_ID_STAGING }}" >> $GITHUB_ENV
+            echo "SUPABASE_DB_PASSWORD=${{ secrets.SUPABASE_DB_PASSWORD_STAGING }}" >> $GITHUB_ENV
             echo "SUPABASE_BRANCH=staging" >> $GITHUB_ENV
           fi
-      
-      - name: Deploy Edge Functions
+
+      - name: Deploy Database Changes
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_ID: ${{ env.SUPABASE_PROJECT_ID }}
+          SUPABASE_DB_PASSWORD: ${{ env.SUPABASE_DB_PASSWORD }}
         run: |
           if [ ! -d "supabase" ]; then
             echo "Error: supabase directory not found"
@@ -72,10 +73,20 @@ jobs:
           echo "Directory contents:"
           ls -la
           
-          for dir in functions/*/; do
-            if [ -f "$dir/index.ts" ]; then
-              func_name=$(basename "$dir")
-              echo "Deploying $func_name to ${{ env.SUPABASE_BRANCH }}..."
-              supabase functions deploy $func_name --project-ref $SUPABASE_PROJECT_ID --branch ${{ env.SUPABASE_BRANCH }}
-            fi
-          done
+          echo "Linking to Supabase project..."
+          supabase link --project-ref $SUPABASE_PROJECT_ID --password $SUPABASE_DB_PASSWORD
+          
+          echo "Pushing database changes..."
+          supabase db push
+          
+          # Deploy functions if they exist
+          if [ -d "functions" ]; then
+            echo "Deploying edge functions..."
+            for dir in functions/*/; do
+              if [ -f "$dir/index.ts" ]; then
+                func_name=$(basename "$dir")
+                echo "Deploying $func_name to ${{ env.SUPABASE_BRANCH }}..."
+                supabase functions deploy $func_name --project-ref $SUPABASE_PROJECT_ID --branch ${{ env.SUPABASE_BRANCH }}
+              fi
+            done
+          fi 
