@@ -36,58 +36,39 @@ jobs:
           # Store access token
           echo "{\"access_token\":\"$SUPABASE_ACCESS_TOKEN\"}" > ~/.config/supabase/access-token
 
-      - name: Get Database Connection Info
+      - name: Get Database Password
         id: db-info
         run: |
           echo "Fetching database configuration..."
           
           # Get database configuration
-          DB_CONFIG=$(curl -s -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-            https://api.supabase.com/v1/projects/$PROJECT_ID/config/database/postgres)
+          response=$(curl -s -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            "https://api.supabase.com/v1/projects/$PROJECT_ID")
           
-          # Extract connection info
-          DB_HOST=$(echo $DB_CONFIG | jq -r '.db_host')
-          DB_PORT=$(echo $DB_CONFIG | jq -r '.db_port')
-          DB_USER=$(echo $DB_CONFIG | jq -r '.db_user')
-          DB_PASS=$(echo $DB_CONFIG | jq -r '.db_pass')
+          # Extract database password from response
+          DB_PASS=$(echo "$response" | jq -r '.db_pass')
           
-          if [ -z "$DB_HOST" ] || [ -z "$DB_PORT" ] || [ -z "$DB_USER" ] || [ -z "$DB_PASS" ]; then
-            echo "::error::Failed to get complete database configuration"
+          if [ -z "$DB_PASS" ] || [ "$DB_PASS" = "null" ]; then
+            echo "::error::Failed to get database password"
+            echo "Response: $response"
             exit 1
           fi
           
-          # Save to outputs
-          {
-            echo "db_host=$DB_HOST"
-            echo "db_port=$DB_PORT"
-            echo "db_user=$DB_USER"
-            echo "db_pass=$DB_PASS"
-          } >> $GITHUB_OUTPUT
-          
-          # Create connection config
-          cat > ~/.config/supabase/connection.env << EOF
-          DB_HOST=$DB_HOST
-          DB_PORT=$DB_PORT
-          DB_USER=$DB_USER
-          DB_PASS=$DB_PASS
-          EOF
+          # Save to output
+          echo "db_pass=$DB_PASS" >> $GITHUB_OUTPUT
 
       - name: Link Supabase Project
         run: |
           echo "Linking Supabase project..."
           echo "Project ID: $PROJECT_ID"
-          echo "Host: ${{ steps.db-info.outputs.db_host }}"
-          echo "Port: ${{ steps.db-info.outputs.db_port }}"
-          echo "User: ${{ steps.db-info.outputs.db_user }}"
           
-          # Try linking with connection info
-          supabase link \
-            --project-ref "$PROJECT_ID" \
-            --db-url "postgresql://${{ steps.db-info.outputs.db_user }}:${{ steps.db-info.outputs.db_pass }}@${{ steps.db-info.outputs.db_host }}:${{ steps.db-info.outputs.db_port }}/postgres" \
-            --debug
+          supabase init
+          
+          # Link project with password
+          supabase link --project-ref "$PROJECT_ID" --password "${{ steps.db-info.outputs.db_pass }}"
           
           if [ $? -ne 0 ]; then
-            echo "::error::Failed to link Supabase project. Check the debug output above."
+            echo "::error::Failed to link Supabase project. Check the output above."
             exit 1
           fi
         
@@ -104,13 +85,11 @@ jobs:
 
       - name: Deploy database changes
         if: contains(steps.changed-files.outputs.changed_files, 'migrations') || contains(steps.changed-files.outputs.changed_files, 'seed.sql')
-        env:
-          DB_CONNECTION: postgresql://${{ steps.db-info.outputs.db_user }}:${{ steps.db-info.outputs.db_pass }}@${{ steps.db-info.outputs.db_host }}:${{ steps.db-info.outputs.db_port }}/postgres
         run: |
           echo "Deploying database changes..."
           
           echo "Running db push..."
-          supabase db push --db-url "$DB_CONNECTION" --debug 2>&1 | tee db_push.log
+          supabase db push --password "${{ steps.db-info.outputs.db_pass }}" 2>&1 | tee db_push.log
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
             echo "::error::Database migration failed. Check logs for details."
             cat db_push.log
@@ -119,7 +98,7 @@ jobs:
           
           if [[ -f "supabase/seed.sql" ]]; then
             echo "Running seed file..."
-            supabase db reset --db-url "$DB_CONNECTION" --debug 2>&1 | tee seed.log
+            supabase db reset --password "${{ steps.db-info.outputs.db_pass }}" 2>&1 | tee seed.log
             if [ ${PIPESTATUS[0]} -ne 0 ]; then
               echo "::error::Database seeding failed. Check logs for details."
               cat seed.log
@@ -136,7 +115,7 @@ jobs:
             if [ -d "$func_dir" ]; then
               func_name=$(basename "$func_dir")
               echo "Deploying function: $func_name"
-              supabase functions deploy "$func_name" --debug 2>&1 | tee "function_${func_name}.log"
+              supabase functions deploy "$func_name" 2>&1 | tee "function_${func_name}.log"
               if [ ${PIPESTATUS[0]} -ne 0 ]; then
                 echo "::error::Function deployment failed for $func_name. Check logs for details."
                 cat "function_${func_name}.log"
