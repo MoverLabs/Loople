@@ -78,28 +78,24 @@ jobs:
           echo "Linking to Supabase project..."
           supabase link --project-ref "$SUPABASE_PROJECT_ID" --password "$SUPABASE_DB_PASSWORD"
           
-          # Check for migration changes
-          if [ -d "supabase/migrations" ] && [ "$(ls -A supabase/migrations)" ]; then
-            echo "Found migrations, applying changes..."
-            # Use db push with --dry-run first to check for potential issues
-            echo "Performing dry run of migrations..."
-            if supabase db push --dry-run; then
-              echo "Dry run successful, applying migrations..."
-              supabase db push
-            else
-              echo "Dry run failed! Please check your migrations."
-              exit 1
-            fi
+          # Handle different deployment scenarios based on branch
+          if [[ "${{ env.SUPABASE_BRANCH }}" == "staging" ]]; then
+            echo "Staging branch: Setting up fresh environment..."
+            # For staging, we can reset and apply all migrations
+            supabase db reset --linked
           else
-            echo "No migrations found to apply."
-          fi
-          
-          # Apply seed data if it exists and we're not in production
-          if [ -f "supabase/seed.sql" ] && [ "${{ env.SUPABASE_BRANCH }}" != "main" ]; then
-            echo "Found seed.sql, applying seed data (non-production only)..."
-            supabase db reset --linked # This will apply migrations and seed data
-          elif [ -f "supabase/seed.sql" ] && [ "${{ env.SUPABASE_BRANCH }}" == "main" ]; then
-            echo "Skipping seed data in production environment"
+            echo "Main branch: Syncing with existing database..."
+            # For main branch, first pull the current state if migrations directory is empty
+            if [ ! "$(ls -A supabase/migrations 2>/dev/null)" ]; then
+              echo "Pulling current database schema..."
+              supabase db pull
+            fi
+            
+            # Then try to apply any new migrations
+            if [ -d "supabase/migrations" ] && [ "$(ls -A supabase/migrations)" ]; then
+              echo "Applying new migrations..."
+              supabase db push
+            fi
           fi
           
           # Deploy functions if they exist
