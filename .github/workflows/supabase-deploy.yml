@@ -40,7 +40,7 @@ jobs:
         id: check-db
         run: |
           # Initialize without prompts
-          supabase init --workdir . --db-password "$DB_PASSWORD" --no-deno-vscode --no-deno-intellij
+          supabase init --workdir .
           
           # Get database host
           DB_HOST="db.${PROJECT_ID}.supabase.co"
@@ -90,7 +90,7 @@ jobs:
           echo "{\"access_token\":\"$SUPABASE_ACCESS_TOKEN\"}" > ~/.config/supabase/access-token
           
           # Initialize without prompts
-          supabase init --workdir . --db-password "$DB_PASSWORD" --no-deno-vscode --no-deno-intellij
+          supabase init --workdir .
           
           # Get database host and resolve IP
           DB_HOST="db.${PROJECT_ID}.supabase.co"
