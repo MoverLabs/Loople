@@ -41,20 +41,25 @@ jobs:
         run: |
           echo "Fetching database configuration..."
           
-          # Get database configuration
-          response=$(curl -s -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-            "https://api.supabase.com/v1/projects/$PROJECT_ID")
+          # Get database configuration using management API
+          response=$(curl -s \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.supabase.com/v1/projects/$PROJECT_ID/secrets")
           
-          # Extract database password from response
-          DB_PASS=$(echo "$response" | jq -r '.db_pass')
+          # Extract database password from secrets
+          DB_PASS=$(echo "$response" | jq -r '.[] | select(.name == "postgres_password") | .value')
           
           if [ -z "$DB_PASS" ] || [ "$DB_PASS" = "null" ]; then
             echo "::error::Failed to get database password"
-            echo "Response: $response"
+            echo "API Response: $response"
+            echo "Project ID: $PROJECT_ID"
+            echo "Access Token Status: $(if [ -n "$SUPABASE_ACCESS_TOKEN" ]; then echo "Set"; else echo "Not Set"; fi)"
             exit 1
           fi
           
-          # Save to output
+          # Save to output (masked in logs)
+          echo "::add-mask::$DB_PASS"
           echo "db_pass=$DB_PASS" >> $GITHUB_OUTPUT
 
       - name: Link Supabase Project
