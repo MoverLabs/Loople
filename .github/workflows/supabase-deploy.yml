@@ -67,11 +67,29 @@ jobs:
       - name: Deploy Supabase Edge Functions
         if: github.event_name == 'push'
         run: |
-          cd supabase/functions
+          # Get absolute path to functions directory
+          FUNCTIONS_DIR="$GITHUB_WORKSPACE/supabase/functions"
+          cd "$FUNCTIONS_DIR"
+          
+          echo "Functions directory: $FUNCTIONS_DIR"
+          
           for d in */ ; do
             if [ -d "$d" ] && [[ ! "$d" =~ ^_.*/ ]]; then
-              echo "Deploying function: $d"
-              supabase functions deploy ${d%/} --project-ref ${{ env.SUPABASE_PROJECT_ID }}
+              func_name=${d%/}
+              echo "Checking function: $func_name"
+              
+              if [ -f "$func_name/index.ts" ]; then
+                echo "Found index.ts in $func_name"
+                echo "Full path: $FUNCTIONS_DIR/$func_name/index.ts"
+                
+                # Deploy from the root directory
+                cd "$GITHUB_WORKSPACE"
+                supabase functions deploy "$func_name" --project-ref ${{ env.SUPABASE_PROJECT_ID }} --debug
+                cd "$FUNCTIONS_DIR"
+              else
+                echo "Warning: index.ts not found in $func_name"
+                ls -la "$FUNCTIONS_DIR/$func_name"
+              fi
             else
               echo "Skipping directory: $d (starts with underscore or not a directory)"
             fi
