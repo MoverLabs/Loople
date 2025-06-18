@@ -39,12 +39,26 @@ jobs:
       - name: Check Database State
         id: check-db
         run: |
-          # Link project
-          supabase init
-          supabase link --project-ref "$PROJECT_ID" --password "$DB_PASSWORD"
+          # Initialize without prompts
+          supabase init --workdir . --db-password "$DB_PASSWORD" --no-deno-vscode --no-deno-intellij
+          
+          # Get database host
+          DB_HOST="db.${PROJECT_ID}.supabase.co"
+          echo "Database Host: $DB_HOST"
+          
+          # Resolve IP address (prefer IPv4)
+          DB_IP=$(dig +short -4 $DB_HOST | head -n 1)
+          if [ -z "$DB_IP" ]; then
+            echo "Failed to resolve database host"
+            exit 1
+          fi
+          echo "Database IP: $DB_IP"
+          
+          # Link project with explicit host
+          supabase link --project-ref "$PROJECT_ID" --password "$DB_PASSWORD" --db-host "$DB_IP"
           
           # Check if any tables exist in public schema
-          table_count=$(PGPASSWORD="$DB_PASSWORD" psql -h db.${PROJECT_ID}.supabase.co -p 5432 -U postgres -d postgres -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';")
+          table_count=$(PGPASSWORD="$DB_PASSWORD" psql -h "$DB_IP" -p 5432 -U postgres -d postgres -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';")
           
           # Set output based on table count
           if [ "$table_count" -eq "0" ] || [ "${{ github.event.inputs.force_reset }}" == "true" ]; then
@@ -69,17 +83,29 @@ jobs:
         with:
           version: latest
 
-      - name: Setup Supabase credentials
+      - name: Setup Project
         run: |
+          # Create config directory
           mkdir -p ~/.config/supabase
           echo "{\"access_token\":\"$SUPABASE_ACCESS_TOKEN\"}" > ~/.config/supabase/access-token
-
-      - name: Link Supabase Project
-        run: |
-          echo "Linking Supabase project..."
-          echo "Project ID: $PROJECT_ID"
-          supabase init
-          supabase link --project-ref "$PROJECT_ID" --password "$DB_PASSWORD"
+          
+          # Initialize without prompts
+          supabase init --workdir . --db-password "$DB_PASSWORD" --no-deno-vscode --no-deno-intellij
+          
+          # Get database host and resolve IP
+          DB_HOST="db.${PROJECT_ID}.supabase.co"
+          DB_IP=$(dig +short -4 $DB_HOST | head -n 1)
+          if [ -z "$DB_IP" ]; then
+            echo "Failed to resolve database host"
+            exit 1
+          fi
+          echo "Database IP: $DB_IP"
+          
+          # Link project with explicit host
+          supabase link --project-ref "$PROJECT_ID" --password "$DB_PASSWORD" --db-host "$DB_IP"
+          
+          # Export DB_IP for later steps
+          echo "DB_IP=$DB_IP" >> $GITHUB_ENV
 
       - name: Get changed files
         id: changed-files
@@ -98,7 +124,7 @@ jobs:
           echo "Performing initial database setup..."
           
           # Drop all existing tables and functions
-          PGPASSWORD="$DB_PASSWORD" psql -h db.${PROJECT_ID}.supabase.co -p 5432 -U postgres -d postgres -c "
+          PGPASSWORD="$DB_PASSWORD" psql -h "$DB_IP" -p 5432 -U postgres -d postgres -c "
             DO \$\$ DECLARE
               r RECORD;
             BEGIN
@@ -116,7 +142,7 @@ jobs:
           
           # Apply all migrations
           echo "Applying all migrations..."
-          supabase db reset --password "$DB_PASSWORD" 2>&1 | tee db_reset.log
+          supabase db reset --password "$DB_PASSWORD" --db-host "$DB_IP" 2>&1 | tee db_reset.log
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
             echo "::error::Database reset failed. Check logs for details."
             cat db_reset.log
@@ -129,7 +155,7 @@ jobs:
           echo "Deploying incremental database changes..."
           
           echo "Running db push..."
-          supabase db push --password "$DB_PASSWORD" 2>&1 | tee db_push.log
+          supabase db push --password "$DB_PASSWORD" --db-host "$DB_IP" 2>&1 | tee db_push.log
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
             echo "::error::Database migration failed. Check logs for details."
             cat db_push.log
