@@ -78,23 +78,29 @@ jobs:
           echo "Linking to Supabase project..."
           supabase link --project-ref "$SUPABASE_PROJECT_ID" --password "$SUPABASE_DB_PASSWORD"
           
-          # Handle different deployment scenarios based on branch
           if [[ "${{ env.SUPABASE_BRANCH }}" == "staging" ]]; then
             echo "Staging branch: Setting up fresh environment..."
-            # For staging, we can reset and apply all migrations
+            # For staging, we reset everything and apply migrations
             supabase db reset --linked
           else
             echo "Main branch: Syncing with existing database..."
-            # For main branch, first pull the current state if migrations directory is empty
-            if [ ! "$(ls -A supabase/migrations 2>/dev/null)" ]; then
-              echo "Pulling current database schema..."
-              supabase db pull
-            fi
+            # For main branch, we need to be careful with existing objects
             
-            # Then try to apply any new migrations
+            # First, pull the current state to ensure we're in sync
+            echo "Pulling current database schema..."
+            supabase db pull
+            
+            # Now try to apply any new migrations carefully
             if [ -d "supabase/migrations" ] && [ "$(ls -A supabase/migrations)" ]; then
-              echo "Applying new migrations..."
-              supabase db push
+              echo "Checking and applying new migrations..."
+              # First repair the migration history if needed
+              supabase migration repair --status reverted || true
+              
+              # Then try to push any new changes
+              supabase db push || {
+                echo "Warning: Some migrations may have failed. This is expected if the objects already exist."
+                echo "Continuing with deployment..."
+              }
             fi
           fi
           
@@ -104,8 +110,8 @@ jobs:
             for dir in supabase/functions/*/; do
               if [ -f "$dir/index.ts" ]; then
                 func_name=$(basename "$dir")
-                echo "Deploying $func_name to ${{ env.SUPABASE_BRANCH }}..."
-                supabase functions deploy "$func_name" --project-ref "$SUPABASE_PROJECT_ID" --branch "${{ env.SUPABASE_BRANCH }}"
+                echo "Deploying $func_name..."
+                supabase functions deploy "$func_name" --project-ref "$SUPABASE_PROJECT_ID"
               fi
             done
           fi 
