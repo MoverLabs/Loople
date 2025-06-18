@@ -4,18 +4,59 @@ on:
   push:
     branches:
       - staging
+      - main
     paths:
       - 'supabase/**'
   workflow_dispatch:  # Allow manual triggers
+    inputs:
+      force_reset:
+        description: 'Force full database reset'
+        required: false
+        type: boolean
+        default: false
 
 env:
   SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN_STAGING }}
   PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID_STAGING }}
+  DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD_STAGING }}
 
 jobs:
-  deploy:
+  check-database:
     runs-on: ubuntu-latest
-    environment: staging
+    outputs:
+      is_empty: ${{ steps.check-db.outputs.is_empty }}
+    steps:
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Setup Supabase credentials
+        run: |
+          mkdir -p ~/.config/supabase
+          echo "{\"access_token\":\"$SUPABASE_ACCESS_TOKEN\"}" > ~/.config/supabase/access-token
+
+      - name: Check Database State
+        id: check-db
+        run: |
+          # Link project
+          supabase init
+          supabase link --project-ref "$PROJECT_ID" --password "$DB_PASSWORD"
+          
+          # Check if any tables exist in public schema
+          table_count=$(PGPASSWORD="$DB_PASSWORD" psql -h db.${PROJECT_ID}.supabase.co -p 5432 -U postgres -d postgres -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';")
+          
+          # Set output based on table count
+          if [ "$table_count" -eq "0" ] || [ "${{ github.event.inputs.force_reset }}" == "true" ]; then
+            echo "is_empty=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_empty=false" >> $GITHUB_OUTPUT
+          fi
+
+  deploy:
+    needs: check-database
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name }}
     
     steps:
       - name: Checkout repository
@@ -30,66 +71,16 @@ jobs:
 
       - name: Setup Supabase credentials
         run: |
-          # Create config directory
           mkdir -p ~/.config/supabase
-          
-          # Store access token
           echo "{\"access_token\":\"$SUPABASE_ACCESS_TOKEN\"}" > ~/.config/supabase/access-token
-
-      - name: Get Database Password
-        id: db-info
-        run: |
-          echo "Fetching database configuration..."
-          
-          # First try to get project info to verify access
-          project_info=$(curl -s \
-            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-            "https://api.supabase.com/v1/projects/$PROJECT_ID")
-          
-          echo "Project info response: $project_info"
-          
-          # Get database configuration using management API
-          response=$(curl -s \
-            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-            "https://api.supabase.com/v1/projects/$PROJECT_ID/config/database/postgres")
-          
-          # Extract database password
-          DB_PASS=$(echo "$response" | jq -r '.db_pass')
-          
-          if [ -z "$DB_PASS" ] || [ "$DB_PASS" = "null" ]; then
-            echo "::error::Failed to get database password"
-            echo "API Response: $response"
-            echo "Project ID: $PROJECT_ID"
-            echo "Access Token Status: $(if [ -n "$SUPABASE_ACCESS_TOKEN" ]; then echo "Set"; else echo "Not Set"; fi)"
-            
-            # Try alternative endpoint
-            alt_response=$(curl -s \
-              -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-              "https://api.supabase.com/v1/projects/$PROJECT_ID/database/postgres")
-            
-            echo "Alternative endpoint response: $alt_response"
-            exit 1
-          fi
-          
-          # Save to output (masked in logs)
-          echo "::add-mask::$DB_PASS"
-          echo "db_pass=$DB_PASS" >> $GITHUB_OUTPUT
 
       - name: Link Supabase Project
         run: |
           echo "Linking Supabase project..."
           echo "Project ID: $PROJECT_ID"
-          
           supabase init
-          
-          # Link project with password
-          supabase link --project-ref "$PROJECT_ID" --password "${{ steps.db-info.outputs.db_pass }}"
-          
-          if [ $? -ne 0 ]; then
-            echo "::error::Failed to link Supabase project. Check the output above."
-            exit 1
-          fi
-        
+          supabase link --project-ref "$PROJECT_ID" --password "$DB_PASSWORD"
+
       - name: Get changed files
         id: changed-files
         run: |
@@ -101,34 +92,54 @@ jobs:
           echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Deploy database changes
-        if: contains(steps.changed-files.outputs.changed_files, 'migrations') || contains(steps.changed-files.outputs.changed_files, 'seed.sql')
+      - name: Initial Database Setup
+        if: needs.check-database.outputs.is_empty == 'true'
         run: |
-          echo "Deploying database changes..."
+          echo "Performing initial database setup..."
+          
+          # Drop all existing tables and functions
+          PGPASSWORD="$DB_PASSWORD" psql -h db.${PROJECT_ID}.supabase.co -p 5432 -U postgres -d postgres -c "
+            DO \$\$ DECLARE
+              r RECORD;
+            BEGIN
+              -- Drop all tables in public schema
+              FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
+                EXECUTE 'DROP TABLE IF EXISTS public.' || quote_ident(r.tablename) || ' CASCADE';
+              END LOOP;
+              
+              -- Drop all functions in public schema
+              FOR r IN (SELECT proname, oidvectortypes(proargtypes) as argnames FROM pg_proc WHERE pronamespace = 'public'::regnamespace) LOOP
+                EXECUTE 'DROP FUNCTION IF EXISTS public.' || quote_ident(r.proname) || '(' || r.argnames || ') CASCADE';
+              END LOOP;
+            END \$\$;
+          "
+          
+          # Apply all migrations
+          echo "Applying all migrations..."
+          supabase db reset --password "$DB_PASSWORD" 2>&1 | tee db_reset.log
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "::error::Database reset failed. Check logs for details."
+            cat db_reset.log
+            exit 1
+          fi
+
+      - name: Deploy Database Changes
+        if: needs.check-database.outputs.is_empty == 'false' && contains(steps.changed-files.outputs.changed_files, 'migrations')
+        run: |
+          echo "Deploying incremental database changes..."
           
           echo "Running db push..."
-          supabase db push --password "${{ steps.db-info.outputs.db_pass }}" 2>&1 | tee db_push.log
+          supabase db push --password "$DB_PASSWORD" 2>&1 | tee db_push.log
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
             echo "::error::Database migration failed. Check logs for details."
             cat db_push.log
             exit 1
-          fi
-          
-          if [[ -f "supabase/seed.sql" ]]; then
-            echo "Running seed file..."
-            supabase db reset --password "${{ steps.db-info.outputs.db_pass }}" 2>&1 | tee seed.log
-            if [ ${PIPESTATUS[0]} -ne 0 ]; then
-              echo "::error::Database seeding failed. Check logs for details."
-              cat seed.log
-              exit 1
-            fi
           fi
 
       - name: Deploy Edge Functions
         if: contains(steps.changed-files.outputs.changed_files, 'functions')
         run: |
           echo "Deploying Edge Functions..."
-          # List all function directories
           for func_dir in supabase/functions/*/; do
             if [ -d "$func_dir" ]; then
               func_name=$(basename "$func_dir")
