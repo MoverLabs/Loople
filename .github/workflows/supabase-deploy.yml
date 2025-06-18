@@ -76,7 +76,7 @@ jobs:
           
           if [[ "${{ env.SUPABASE_BRANCH }}" == "staging" ]]; then
             echo "Staging branch: Setting up fresh environment..."
-            supabase init
+            supabase init --force
             supabase link --project-ref "$SUPABASE_PROJECT_ID"
             supabase db reset
           else
