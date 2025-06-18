@@ -42,15 +42,25 @@ jobs:
         run: |
           supabase link --project-ref ${{ env.SUPABASE_PROJECT_ID }} --password ${{ env.SUPABASE_DB_PASSWORD }}
 
+      - name: Repair Migration History
+        if: github.event_name == 'push'
+        run: |
+          echo "Repairing migration history..."
+          # First mark problematic migrations as reverted
+          supabase migration repair --status reverted 20240319000000 || true
+          supabase migration repair --status reverted 20250616 || true
+          supabase migration repair --status reverted 20250617 || true
+          
+          # Then mark them as applied in the correct order
+          supabase migration repair --status applied 20250616 || true
+          supabase migration repair --status applied 20250617 || true
+
       - name: Sync and Deploy Database Changes
         if: github.event_name == 'push'
         run: |
           echo "Pulling current database state..."
-          supabase db pull
-
-          echo "Repairing migration history if needed..."
-          supabase migration repair --status reverted || true
-
+          supabase db pull || true
+          
           echo "Pushing new migrations..."
           supabase db push
 
