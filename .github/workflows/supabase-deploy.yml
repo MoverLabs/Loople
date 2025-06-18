@@ -1,128 +1,108 @@
-name: Deploy Supabase Migrations
+name: Supabase Deploy
 
 on:
   push:
-    branches: [main, staging]
+    branches:
+      - staging
     paths:
-      - 'supabase/migrations/**'
-      - 'supabase/functions/**'
-      - 'supabase/config.toml'
-      - 'supabase/seed.sql'
-  workflow_dispatch:
+      - 'supabase/**'
+  workflow_dispatch:  # Allow manual triggers
+
+env:
+  SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN_STAGING }}
+  SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD_STAGING }}
+  PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID_STAGING }}
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
+    environment: staging
+    
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # Fetch all history for proper diff comparison
 
-      - name: Debug directory structure
-        run: |
-          echo "Current directory: $(pwd)"
-          echo "Directory contents:"
-          ls -la
-          echo "Git status:"
-          git status
-          echo "Git log:"
-          git log -n 1
-          echo "Checking supabase directory:"
-          ls -la supabase || echo "supabase directory not found"
-          if [ -d "supabase" ]; then
-            echo "Contents of supabase directory:"
-            ls -la supabase/
-            echo "Contents of supabase/migrations directory:"
-            ls -la supabase/migrations/
-          fi
-
-      - name: Setup Supabase CLI
-        uses: supabase/setup-cli@v1
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          version: latest
+          node-version: '20'
 
-      - name: Set environment variables
-        id: set-env
+      - name: Install Supabase CLI
         run: |
-          if [[ $GITHUB_REF == "refs/heads/main" ]]; then
-            echo "Using main environment"
-            echo "SUPABASE_URL=${{ secrets.SUPABASE_URL_MAIN }}" >> $GITHUB_ENV
-            echo "SUPABASE_PROJECT_ID=${{ secrets.SUPABASE_PROJECT_ID_MAIN }}" >> $GITHUB_ENV
-            echo "SUPABASE_DB_PASSWORD=${{ secrets.SUPABASE_DB_PASSWORD_MAIN }}" >> $GITHUB_ENV
-            echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY_MAIN }}" >> $GITHUB_ENV
-            echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY_MAIN }}" >> $GITHUB_ENV
-            echo "SUPABASE_ACCESS_TOKEN=${{ secrets.SUPABASE_ACCESS_TOKEN_MAIN }}" >> $GITHUB_ENV
-            echo "SUPABASE_BRANCH=main" >> $GITHUB_ENV
-          elif [[ $GITHUB_REF == "refs/heads/staging" ]]; then
-            echo "Using staging environment"
-            echo "SUPABASE_URL=${{ secrets.SUPABASE_URL_STAGING }}" >> $GITHUB_ENV
-            echo "SUPABASE_PROJECT_ID=${{ secrets.SUPABASE_PROJECT_ID_STAGING }}" >> $GITHUB_ENV
-            echo "SUPABASE_DB_PASSWORD=${{ secrets.SUPABASE_DB_PASSWORD_STAGING }}" >> $GITHUB_ENV
-            echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY_STAGING }}" >> $GITHUB_ENV
-            echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY_STAGING }}" >> $GITHUB_ENV
-            echo "SUPABASE_ACCESS_TOKEN=${{ secrets.SUPABASE_ACCESS_TOKEN_STAGING }}" >> $GITHUB_ENV
-            echo "SUPABASE_BRANCH=staging" >> $GITHUB_ENV
+          npm install -g supabase
+          echo "Supabase CLI version:"
+          supabase --version
+        
+      - name: Setup Supabase project
+        run: |
+          echo "Linking Supabase project..."
+          supabase link --project-ref $PROJECT_ID --password $SUPABASE_DB_PASSWORD
+          if [ $? -ne 0 ]; then
+            echo "::error::Failed to link Supabase project"
+            exit 1
           fi
-
-      - name: Deploy Database Changes
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ env.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_ID: ${{ env.SUPABASE_PROJECT_ID }}
-          SUPABASE_DB_PASSWORD: ${{ env.SUPABASE_DB_PASSWORD }}
+        
+      - name: Get changed files
+        id: changed-files
         run: |
-          echo "Deploying to ${{ env.SUPABASE_BRANCH }} branch..."
-          echo "Project ID: $SUPABASE_PROJECT_ID"
+          echo "Checking for changes in supabase directory..."
+          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '^supabase/' || true)
+          echo "Changed files in supabase directory:"
+          echo "$CHANGED_FILES"
+          echo "changed_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Deploy database changes
+        if: contains(steps.changed-files.outputs.changed_files, 'migrations') || contains(steps.changed-files.outputs.changed_files, 'seed.sql')
+        run: |
+          echo "Deploying database changes..."
+          echo "Running db push..."
+          supabase db push --password $SUPABASE_DB_PASSWORD 2>&1 | tee db_push.log
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "::error::Database migration failed. Check logs for details."
+            cat db_push.log
+            exit 1
+          fi
           
-          # Create Supabase config directory and store access token
-          mkdir -p ~/.config/supabase
-          echo "{\"access_token\":\"$SUPABASE_ACCESS_TOKEN\"}" > ~/.config/supabase/access-token
-          
-          if [[ "${{ env.SUPABASE_BRANCH }}" == "staging" ]]; then
-            echo "Staging branch: Setting up fresh environment..."
-            # Initialize with non-interactive flags
-            supabase init --force --workdir . --db-password "$SUPABASE_DB_PASSWORD" --no-deno-vscode --no-deno-intellij
-            
-            # Link project with explicit credentials
-            supabase link --project-ref "$SUPABASE_PROJECT_ID" --password "$SUPABASE_DB_PASSWORD"
-            
-            # Reset database with password
-            supabase db reset --db-password "$SUPABASE_DB_PASSWORD"
-          else
-            echo "Main branch: Syncing with existing database..."
-            
-            # Initialize with non-interactive flags
-            supabase init --force --workdir . --db-password "$SUPABASE_DB_PASSWORD" --no-deno-vscode --no-deno-intellij
-            
-            # Link to the project with explicit credentials
-            supabase link --project-ref "$SUPABASE_PROJECT_ID" --password "$SUPABASE_DB_PASSWORD"
-            
-            # Try to repair migration history
-            echo "Attempting to repair migration history..."
-            supabase migration repair --status reverted 20240319000000 || true
-            supabase migration repair --status reverted 20250616 || true
-            supabase migration repair --status reverted 20250617 || true
-            supabase migration repair --status applied 20250616 || true
-            supabase migration repair --status applied 20250617 || true
-            
-            # Pull and push carefully with explicit credentials
-            echo "Syncing database changes..."
-            supabase db pull --db-password "$SUPABASE_DB_PASSWORD" || true
-            
-            if [ -d "supabase/migrations" ] && [ "$(ls -A supabase/migrations)" ]; then
-              echo "Applying migrations..."
-              supabase db push --db-password "$SUPABASE_DB_PASSWORD" || true
+          if [[ -f "supabase/seed.sql" ]]; then
+            echo "Running seed file..."
+            supabase db reset --password $SUPABASE_DB_PASSWORD 2>&1 | tee seed.log
+            if [ ${PIPESTATUS[0]} -ne 0 ]; then
+              echo "::error::Database seeding failed. Check logs for details."
+              cat seed.log
+              exit 1
             fi
           fi
-          
-          # Deploy functions if they exist
-          if [ -d "supabase/functions" ]; then
-            echo "Deploying edge functions..."
-            for dir in supabase/functions/*/; do
-              if [ -f "$dir/index.ts" ]; then
-                func_name=$(basename "$dir")
-                echo "Deploying $func_name..."
-                supabase functions deploy "$func_name" --project-ref "$SUPABASE_PROJECT_ID" --password "$SUPABASE_DB_PASSWORD"
-              fi
-            done
+
+      - name: Deploy Edge Functions
+        if: contains(steps.changed-files.outputs.changed_files, 'functions')
+        run: |
+          echo "Deploying Edge Functions..."
+          supabase functions deploy --project-ref $PROJECT_ID 2>&1 | tee functions.log
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "::error::Edge Functions deployment failed. Check logs for details."
+            cat functions.log
+            exit 1
+          fi
+
+      - name: Upload deployment logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-logs
+          path: |
+            *.log
+          retention-days: 7
+
+      - name: Deployment Status
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ Deployment completed successfully!"
+          else
+            echo "❌ Deployment failed. Please check the logs for details."
+            exit 1
           fi 
