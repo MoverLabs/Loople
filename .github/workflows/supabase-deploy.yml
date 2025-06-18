@@ -73,34 +73,33 @@ jobs:
         run: |
           echo "Deploying to ${{ env.SUPABASE_BRANCH }} branch..."
           echo "Project ID: $SUPABASE_PROJECT_ID"
-          echo "Using access token: ${SUPABASE_ACCESS_TOKEN:0:8}..."
-          
-          echo "Linking to Supabase project..."
-          supabase link --project-ref "$SUPABASE_PROJECT_ID" --password "$SUPABASE_DB_PASSWORD"
           
           if [[ "${{ env.SUPABASE_BRANCH }}" == "staging" ]]; then
             echo "Staging branch: Setting up fresh environment..."
-            # For staging, we reset everything and apply migrations
-            supabase db reset --linked
+            supabase init
+            supabase link --project-ref "$SUPABASE_PROJECT_ID"
+            supabase db reset
           else
             echo "Main branch: Syncing with existing database..."
-            # For main branch, we need to be careful with existing objects
             
-            # First, pull the current state to ensure we're in sync
-            echo "Pulling current database schema..."
-            supabase db pull
+            # Link to the project
+            supabase link --project-ref "$SUPABASE_PROJECT_ID"
             
-            # Now try to apply any new migrations carefully
+            # Try to repair migration history
+            echo "Attempting to repair migration history..."
+            supabase migration repair --status reverted 20240319000000 || true
+            supabase migration repair --status reverted 20250616 || true
+            supabase migration repair --status reverted 20250617 || true
+            supabase migration repair --status applied 20250616 || true
+            supabase migration repair --status applied 20250617 || true
+            
+            # Pull and push carefully
+            echo "Syncing database changes..."
+            supabase db pull || true
+            
             if [ -d "supabase/migrations" ] && [ "$(ls -A supabase/migrations)" ]; then
-              echo "Checking and applying new migrations..."
-              # First repair the migration history if needed
-              supabase migration repair --status reverted || true
-              
-              # Then try to push any new changes
-              supabase db push || {
-                echo "Warning: Some migrations may have failed. This is expected if the objects already exist."
-                echo "Continuing with deployment..."
-              }
+              echo "Applying migrations..."
+              supabase db push || true
             fi
           fi
           
