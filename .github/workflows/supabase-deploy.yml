@@ -52,6 +52,7 @@ jobs:
             echo "SUPABASE_DB_PASSWORD=${{ secrets.SUPABASE_DB_PASSWORD_MAIN }}" >> $GITHUB_ENV
             echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY_MAIN }}" >> $GITHUB_ENV
             echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY_MAIN }}" >> $GITHUB_ENV
+            echo "SUPABASE_ACCESS_TOKEN=${{ secrets.SUPABASE_ACCESS_TOKEN_MAIN }}" >> $GITHUB_ENV
             echo "SUPABASE_BRANCH=main" >> $GITHUB_ENV
           elif [[ $GITHUB_REF == "refs/heads/staging" ]]; then
             echo "Using staging environment"
@@ -60,17 +61,19 @@ jobs:
             echo "SUPABASE_DB_PASSWORD=${{ secrets.SUPABASE_DB_PASSWORD_STAGING }}" >> $GITHUB_ENV
             echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY_STAGING }}" >> $GITHUB_ENV
             echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY_STAGING }}" >> $GITHUB_ENV
+            echo "SUPABASE_ACCESS_TOKEN=${{ secrets.SUPABASE_ACCESS_TOKEN_STAGING }}" >> $GITHUB_ENV
             echo "SUPABASE_BRANCH=staging" >> $GITHUB_ENV
           fi
 
       - name: Deploy Database Changes
         env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_ACCESS_TOKEN: ${{ env.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_ID: ${{ env.SUPABASE_PROJECT_ID }}
           SUPABASE_DB_PASSWORD: ${{ env.SUPABASE_DB_PASSWORD }}
         run: |
           echo "Deploying to ${{ env.SUPABASE_BRANCH }} branch..."
           echo "Project ID: $SUPABASE_PROJECT_ID"
+          echo "Using access token: ${SUPABASE_ACCESS_TOKEN:0:8}..."
           
           echo "Linking to Supabase project..."
           supabase link --project-ref "$SUPABASE_PROJECT_ID" --password "$SUPABASE_DB_PASSWORD"
