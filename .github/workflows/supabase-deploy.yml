@@ -12,6 +12,7 @@ env:
   SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN_STAGING }}
   SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD_STAGING }}
   PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID_STAGING }}
+  POSTGRES_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD_STAGING }}
 
 jobs:
   deploy:
@@ -29,24 +30,49 @@ jobs:
         with:
           version: latest
 
-      - name: Create Supabase config directory
+      - name: Setup Supabase credentials
         run: |
+          # Create config directory
           mkdir -p ~/.config/supabase
+          
+          # Store access token
           echo "{\"access_token\":\"$SUPABASE_ACCESS_TOKEN\"}" > ~/.config/supabase/access-token
+          
+          # Store database credentials
+          cat > ~/.config/supabase/db.env << EOF
+          POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+          EOF
+          
+          # Verify files exist
+          ls -la ~/.config/supabase/
 
       - name: Initialize Supabase
         run: |
+          echo "Initializing Supabase..."
+          supabase init --debug
+          
+          # Create local config if it doesn't exist
           if [ ! -f "supabase/config.toml" ]; then
-            echo "Initializing Supabase project..."
-            supabase init
+            cat > supabase/config.toml << EOF
+          [auth]
+          enabled = true
+          [auth.email]
+          enabled = true
+          [database]
+          port = 5432
+          EOF
           fi
 
       - name: Link Supabase Project
         run: |
           echo "Linking Supabase project..."
-          supabase link --project-ref "$PROJECT_ID" --password "$SUPABASE_DB_PASSWORD"
+          echo "Project ID: $PROJECT_ID"
+          
+          # Try linking with debug output
+          supabase link --project-ref "$PROJECT_ID" --password "$POSTGRES_PASSWORD" --debug
+          
           if [ $? -ne 0 ]; then
-            echo "::error::Failed to link Supabase project. Check the output above."
+            echo "::error::Failed to link Supabase project. Check the debug output above."
             exit 1
           fi
         
@@ -67,7 +93,7 @@ jobs:
           echo "Deploying database changes..."
           
           echo "Running db push..."
-          supabase db push --password "$SUPABASE_DB_PASSWORD" 2>&1 | tee db_push.log
+          supabase db push --password "$POSTGRES_PASSWORD" --debug 2>&1 | tee db_push.log
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
             echo "::error::Database migration failed. Check logs for details."
             cat db_push.log
@@ -76,7 +102,7 @@ jobs:
           
           if [[ -f "supabase/seed.sql" ]]; then
             echo "Running seed file..."
-            supabase db reset --password "$SUPABASE_DB_PASSWORD" 2>&1 | tee seed.log
+            supabase db reset --password "$POSTGRES_PASSWORD" --debug 2>&1 | tee seed.log
             if [ ${PIPESTATUS[0]} -ne 0 ]; then
               echo "::error::Database seeding failed. Check logs for details."
               cat seed.log
@@ -93,7 +119,7 @@ jobs:
             if [ -d "$func_dir" ]; then
               func_name=$(basename "$func_dir")
               echo "Deploying function: $func_name"
-              supabase functions deploy "$func_name" 2>&1 | tee "function_${func_name}.log"
+              supabase functions deploy "$func_name" --debug 2>&1 | tee "function_${func_name}.log"
               if [ ${PIPESTATUS[0]} -ne 0 ]; then
                 echo "::error::Function deployment failed for $func_name. Check logs for details."
                 cat "function_${func_name}.log"
@@ -109,6 +135,8 @@ jobs:
           name: deployment-logs
           path: |
             *.log
+            supabase/config.toml
+            ~/.config/supabase/db.env
           retention-days: 7
 
       - name: Deployment Status
