@@ -1,0 +1,199 @@
+name: Supabase Deploy
+
+on:
+  push:
+    branches:
+      - staging
+      - main
+    paths:
+      - 'supabase/**'
+  workflow_dispatch:  # Allow manual triggers
+    inputs:
+      force_reset:
+        description: 'Force full database reset'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN_STAGING }}
+  PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID_STAGING }}
+  DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD_STAGING }}
+
+jobs:
+  check-database:
+    runs-on: ubuntu-latest
+    outputs:
+      is_empty: ${{ steps.check-db.outputs.is_empty }}
+    steps:
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Setup Supabase credentials
+        run: |
+          mkdir -p ~/.config/supabase
+          echo "{\"access_token\":\"$SUPABASE_ACCESS_TOKEN\"}" > ~/.config/supabase/access-token
+
+      - name: Check Database State
+        id: check-db
+        run: |
+          # Initialize without prompts
+          supabase init --workdir . --db-password "$DB_PASSWORD" --no-deno-vscode --no-deno-intellij
+          
+          # Get database host
+          DB_HOST="db.${PROJECT_ID}.supabase.co"
+          echo "Database Host: $DB_HOST"
+          
+          # Resolve IP address (prefer IPv4)
+          DB_IP=$(dig +short -4 $DB_HOST | head -n 1)
+          if [ -z "$DB_IP" ]; then
+            echo "Failed to resolve database host"
+            exit 1
+          fi
+          echo "Database IP: $DB_IP"
+          
+          # Link project with explicit host
+          supabase link --project-ref "$PROJECT_ID" --password "$DB_PASSWORD" --db-host "$DB_IP"
+          
+          # Check if any tables exist in public schema
+          table_count=$(PGPASSWORD="$DB_PASSWORD" psql -h "$DB_IP" -p 5432 -U postgres -d postgres -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';")
+          
+          # Set output based on table count
+          if [ "$table_count" -eq "0" ] || [ "${{ github.event.inputs.force_reset }}" == "true" ]; then
+            echo "is_empty=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_empty=false" >> $GITHUB_OUTPUT
+          fi
+
+  deploy:
+    needs: check-database
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for proper diff comparison
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Setup Project
+        run: |
+          # Create config directory
+          mkdir -p ~/.config/supabase
+          echo "{\"access_token\":\"$SUPABASE_ACCESS_TOKEN\"}" > ~/.config/supabase/access-token
+          
+          # Initialize without prompts
+          supabase init --workdir . --db-password "$DB_PASSWORD" --no-deno-vscode --no-deno-intellij
+          
+          # Get database host and resolve IP
+          DB_HOST="db.${PROJECT_ID}.supabase.co"
+          DB_IP=$(dig +short -4 $DB_HOST | head -n 1)
+          if [ -z "$DB_IP" ]; then
+            echo "Failed to resolve database host"
+            exit 1
+          fi
+          echo "Database IP: $DB_IP"
+          
+          # Link project with explicit host
+          supabase link --project-ref "$PROJECT_ID" --password "$DB_PASSWORD" --db-host "$DB_IP"
+          
+          # Export DB_IP for later steps
+          echo "DB_IP=$DB_IP" >> $GITHUB_ENV
+
+      - name: Get changed files
+        id: changed-files
+        run: |
+          echo "Checking for changes in supabase directory..."
+          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '^supabase/' || true)
+          echo "Changed files in supabase directory:"
+          echo "$CHANGED_FILES"
+          echo "changed_files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED_FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Initial Database Setup
+        if: needs.check-database.outputs.is_empty == 'true'
+        run: |
+          echo "Performing initial database setup..."
+          
+          # Drop all existing tables and functions
+          PGPASSWORD="$DB_PASSWORD" psql -h "$DB_IP" -p 5432 -U postgres -d postgres -c "
+            DO \$\$ DECLARE
+              r RECORD;
+            BEGIN
+              -- Drop all tables in public schema
+              FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
+                EXECUTE 'DROP TABLE IF EXISTS public.' || quote_ident(r.tablename) || ' CASCADE';
+              END LOOP;
+              
+              -- Drop all functions in public schema
+              FOR r IN (SELECT proname, oidvectortypes(proargtypes) as argnames FROM pg_proc WHERE pronamespace = 'public'::regnamespace) LOOP
+                EXECUTE 'DROP FUNCTION IF EXISTS public.' || quote_ident(r.proname) || '(' || r.argnames || ') CASCADE';
+              END LOOP;
+            END \$\$;
+          "
+          
+          # Apply all migrations
+          echo "Applying all migrations..."
+          supabase db reset --password "$DB_PASSWORD" --db-host "$DB_IP" 2>&1 | tee db_reset.log
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "::error::Database reset failed. Check logs for details."
+            cat db_reset.log
+            exit 1
+          fi
+
+      - name: Deploy Database Changes
+        if: needs.check-database.outputs.is_empty == 'false' && contains(steps.changed-files.outputs.changed_files, 'migrations')
+        run: |
+          echo "Deploying incremental database changes..."
+          
+          echo "Running db push..."
+          supabase db push --password "$DB_PASSWORD" --db-host "$DB_IP" 2>&1 | tee db_push.log
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "::error::Database migration failed. Check logs for details."
+            cat db_push.log
+            exit 1
+          fi
+
+      - name: Deploy Edge Functions
+        if: contains(steps.changed-files.outputs.changed_files, 'functions')
+        run: |
+          echo "Deploying Edge Functions..."
+          for func_dir in supabase/functions/*/; do
+            if [ -d "$func_dir" ]; then
+              func_name=$(basename "$func_dir")
+              echo "Deploying function: $func_name"
+              supabase functions deploy "$func_name" 2>&1 | tee "function_${func_name}.log"
+              if [ ${PIPESTATUS[0]} -ne 0 ]; then
+                echo "::error::Function deployment failed for $func_name. Check logs for details."
+                cat "function_${func_name}.log"
+                exit 1
+              fi
+            fi
+          done
+
+      - name: Upload deployment logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-logs
+          path: |
+            *.log
+          retention-days: 7
+
+      - name: Deployment Status
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ Deployment completed successfully!"
+          else
+            echo "❌ Deployment failed. Please check the logs for details."
+            exit 1
+          fi 
