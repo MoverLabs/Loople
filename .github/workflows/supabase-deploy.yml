@@ -44,25 +44,9 @@ jobs:
       - name: Link Supabase Project
         run: |
           echo "Linking Supabase project..."
-          # Create database connection configuration
-          cat > config.toml << EOF
-          project_id = "$PROJECT_ID"
-          [auth]
-          enabled = true
-          [auth.email]
-          enabled = true
-          [database]
-          host = "aws-0-us-east-2.pooler.supabase.com"
-          port = 5432
-          name = "postgres"
-          user = "postgres"
-          password = "$SUPABASE_DB_PASSWORD"
-          EOF
-          
-          # Link project with debug output
-          supabase link --project-ref "$PROJECT_ID" --db-password "$SUPABASE_DB_PASSWORD" --debug
+          supabase link --project-ref "$PROJECT_ID" --password "$SUPABASE_DB_PASSWORD"
           if [ $? -ne 0 ]; then
-            echo "::error::Failed to link Supabase project. Check the debug output above."
+            echo "::error::Failed to link Supabase project. Check the output above."
             exit 1
           fi
         
@@ -83,7 +67,7 @@ jobs:
           echo "Deploying database changes..."
           
           echo "Running db push..."
-          supabase db push --db-password "$SUPABASE_DB_PASSWORD" --debug 2>&1 | tee db_push.log
+          supabase db push --password "$SUPABASE_DB_PASSWORD" 2>&1 | tee db_push.log
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
             echo "::error::Database migration failed. Check logs for details."
             cat db_push.log
@@ -92,7 +76,7 @@ jobs:
           
           if [[ -f "supabase/seed.sql" ]]; then
             echo "Running seed file..."
-            supabase db reset --db-password "$SUPABASE_DB_PASSWORD" --debug 2>&1 | tee seed.log
+            supabase db reset --password "$SUPABASE_DB_PASSWORD" 2>&1 | tee seed.log
             if [ ${PIPESTATUS[0]} -ne 0 ]; then
               echo "::error::Database seeding failed. Check logs for details."
               cat seed.log
@@ -109,7 +93,7 @@ jobs:
             if [ -d "$func_dir" ]; then
               func_name=$(basename "$func_dir")
               echo "Deploying function: $func_name"
-              supabase functions deploy "$func_name" --project-ref "$PROJECT_ID" --debug 2>&1 | tee "function_${func_name}.log"
+              supabase functions deploy "$func_name" 2>&1 | tee "function_${func_name}.log"
               if [ ${PIPESTATUS[0]} -ne 0 ]; then
                 echo "::error::Function deployment failed for $func_name. Check logs for details."
                 cat "function_${func_name}.log"
@@ -125,7 +109,6 @@ jobs:
           name: deployment-logs
           path: |
             *.log
-            config.toml
           retention-days: 7
 
       - name: Deployment Status
