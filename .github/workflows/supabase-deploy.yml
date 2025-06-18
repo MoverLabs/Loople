@@ -24,21 +24,24 @@ jobs:
         with:
           fetch-depth: 0  # Fetch all history for proper diff comparison
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
       - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Login to Supabase
         run: |
-          npm install -g supabase
-          echo "Supabase CLI version:"
-          supabase --version
+          echo "Logging in to Supabase..."
+          supabase login "$SUPABASE_ACCESS_TOKEN"
+          if [ $? -ne 0 ]; then
+            echo "::error::Failed to login to Supabase"
+            exit 1
+          fi
         
       - name: Setup Supabase project
         run: |
           echo "Linking Supabase project..."
-          supabase link --project-ref $PROJECT_ID --password $SUPABASE_DB_PASSWORD
+          supabase link --project-ref "$PROJECT_ID"
           if [ $? -ne 0 ]; then
             echo "::error::Failed to link Supabase project"
             exit 1
@@ -59,8 +62,15 @@ jobs:
         if: contains(steps.changed-files.outputs.changed_files, 'migrations') || contains(steps.changed-files.outputs.changed_files, 'seed.sql')
         run: |
           echo "Deploying database changes..."
+          
+          # Initialize Supabase config if needed
+          if [ ! -f "supabase/config.toml" ]; then
+            echo "Initializing Supabase configuration..."
+            supabase init
+          fi
+          
           echo "Running db push..."
-          supabase db push --password $SUPABASE_DB_PASSWORD 2>&1 | tee db_push.log
+          supabase db push 2>&1 | tee db_push.log
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
             echo "::error::Database migration failed. Check logs for details."
             cat db_push.log
@@ -69,7 +79,7 @@ jobs:
           
           if [[ -f "supabase/seed.sql" ]]; then
             echo "Running seed file..."
-            supabase db reset --password $SUPABASE_DB_PASSWORD 2>&1 | tee seed.log
+            supabase db reset 2>&1 | tee seed.log
             if [ ${PIPESTATUS[0]} -ne 0 ]; then
               echo "::error::Database seeding failed. Check logs for details."
               cat seed.log
@@ -81,12 +91,19 @@ jobs:
         if: contains(steps.changed-files.outputs.changed_files, 'functions')
         run: |
           echo "Deploying Edge Functions..."
-          supabase functions deploy --project-ref $PROJECT_ID 2>&1 | tee functions.log
-          if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "::error::Edge Functions deployment failed. Check logs for details."
-            cat functions.log
-            exit 1
-          fi
+          # List all function directories
+          for func_dir in supabase/functions/*/; do
+            if [ -d "$func_dir" ]; then
+              func_name=$(basename "$func_dir")
+              echo "Deploying function: $func_name"
+              supabase functions deploy "$func_name" 2>&1 | tee "function_${func_name}.log"
+              if [ ${PIPESTATUS[0]} -ne 0 ]; then
+                echo "::error::Function deployment failed for $func_name. Check logs for details."
+                cat "function_${func_name}.log"
+                exit 1
+              fi
+            fi
+          done
 
       - name: Upload deployment logs
         if: always()
