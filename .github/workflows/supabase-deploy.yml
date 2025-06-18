@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Fetch all history for migrations
 
       - name: Setup Node.js
         uses: actions/setup-node@v3
@@ -40,9 +42,17 @@ jobs:
         run: |
           supabase link --project-ref ${{ env.SUPABASE_PROJECT_ID }} --password ${{ env.SUPABASE_DB_PASSWORD }}
 
-      - name: Deploy Supabase migrations
+      - name: Sync and Deploy Database Changes
         if: github.event_name == 'push'
-        run: supabase db push
+        run: |
+          echo "Pulling current database state..."
+          supabase db pull
+
+          echo "Repairing migration history if needed..."
+          supabase migration repair --status reverted || true
+
+          echo "Pushing new migrations..."
+          supabase db push
 
       - name: Deploy Supabase Edge Functions
         if: github.event_name == 'push'
