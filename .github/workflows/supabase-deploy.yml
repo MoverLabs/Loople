@@ -69,9 +69,11 @@ jobs:
         run: |
           cd supabase/functions
           for d in */ ; do
-            if [ -d "$d" ]; then
+            if [ -d "$d" ] && [[ ! "$d" =~ ^_.*/ ]]; then
               echo "Deploying function: $d"
               supabase functions deploy ${d%/} --project-ref ${{ env.SUPABASE_PROJECT_ID }}
+            else
+              echo "Skipping directory: $d (starts with underscore or not a directory)"
             fi
           done
 
