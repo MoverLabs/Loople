@@ -10,9 +10,7 @@ on:
 
 env:
   SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN_STAGING }}
-  SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD_STAGING }}
   PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID_STAGING }}
-  POSTGRES_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD_STAGING }}
 
 jobs:
   deploy:
@@ -37,31 +35,22 @@ jobs:
           
           # Store access token
           echo "{\"access_token\":\"$SUPABASE_ACCESS_TOKEN\"}" > ~/.config/supabase/access-token
-          
-          # Store database credentials
-          cat > ~/.config/supabase/db.env << EOF
-          POSTGRES_PASSWORD=$POSTGRES_PASSWORD
-          EOF
-          
-          # Verify files exist
-          ls -la ~/.config/supabase/
 
-      - name: Initialize Supabase
+      - name: Get Database Password
+        id: db-password
         run: |
-          echo "Initializing Supabase..."
-          supabase init --debug
+          # Get database configuration using access token
+          echo "Getting database configuration..."
+          DB_PASSWORD=$(curl -s -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            https://api.supabase.com/v1/projects/$PROJECT_ID/config/database/postgres | \
+            jq -r '.db_pass')
           
-          # Create local config if it doesn't exist
-          if [ ! -f "supabase/config.toml" ]; then
-            cat > supabase/config.toml << EOF
-          [auth]
-          enabled = true
-          [auth.email]
-          enabled = true
-          [database]
-          port = 5432
-          EOF
+          if [ -z "$DB_PASSWORD" ]; then
+            echo "::error::Failed to get database password"
+            exit 1
           fi
+          
+          echo "db_password=$DB_PASSWORD" >> $GITHUB_OUTPUT
 
       - name: Link Supabase Project
         run: |
@@ -69,7 +58,7 @@ jobs:
           echo "Project ID: $PROJECT_ID"
           
           # Try linking with debug output
-          supabase link --project-ref "$PROJECT_ID" --password "$POSTGRES_PASSWORD" --debug
+          supabase link --project-ref "$PROJECT_ID" --password "${{ steps.db-password.outputs.db_password }}" --debug
           
           if [ $? -ne 0 ]; then
             echo "::error::Failed to link Supabase project. Check the debug output above."
@@ -93,7 +82,7 @@ jobs:
           echo "Deploying database changes..."
           
           echo "Running db push..."
-          supabase db push --password "$POSTGRES_PASSWORD" --debug 2>&1 | tee db_push.log
+          supabase db push --password "${{ steps.db-password.outputs.db_password }}" --debug 2>&1 | tee db_push.log
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
             echo "::error::Database migration failed. Check logs for details."
             cat db_push.log
@@ -102,7 +91,7 @@ jobs:
           
           if [[ -f "supabase/seed.sql" ]]; then
             echo "Running seed file..."
-            supabase db reset --password "$POSTGRES_PASSWORD" --debug 2>&1 | tee seed.log
+            supabase db reset --password "${{ steps.db-password.outputs.db_password }}" --debug 2>&1 | tee seed.log
             if [ ${PIPESTATUS[0]} -ne 0 ]; then
               echo "::error::Database seeding failed. Check logs for details."
               cat seed.log
@@ -135,8 +124,6 @@ jobs:
           name: deployment-logs
           path: |
             *.log
-            supabase/config.toml
-            ~/.config/supabase/db.env
           retention-days: 7
 
       - name: Deployment Status
