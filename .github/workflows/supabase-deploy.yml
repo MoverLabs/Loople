@@ -45,48 +45,37 @@ jobs:
           echo "Linking to project: ${{ env.SUPABASE_PROJECT_ID }}"
           supabase link --project-ref ${{ env.SUPABASE_PROJECT_ID }} --password ${{ env.SUPABASE_DB_PASSWORD }}
 
-      - name: Handle Staging Migrations
+      - name: Reset Database (only on staging)
         if: github.ref == 'refs/heads/staging'
         run: |
-          echo "Handling staging-specific migrations..."
-          # Pull current state first
-          supabase db pull || true
-          
-          # Reset migration state
-          supabase migration repair --status reverted 20250619025416 || true
-          supabase migration repair --status reverted 20250619032306 || true
-          
-          # Apply migrations in order
-          supabase migration repair --status applied 20250619025416 || true
-          supabase migration repair --status applied 20250619032306 || true
+          echo "Resetting staging database..."
+          echo "y" | supabase db reset --linked
 
-      - name: Repair Migration History
+      - name: Apply Schema Migrations
         if: github.event_name == 'push'
         run: |
-          echo "Repairing migration history..."
-          
-          # Common migrations for both branches
-          supabase migration repair --status reverted 20240319000000 || true
-          supabase migration repair --status reverted 20250616 || true
-          supabase migration repair --status reverted 20250617 || true
-          
-          # Then mark them as applied in the correct order
-          supabase migration repair --status applied 20250616 || true
-          supabase migration repair --status applied 20250617 || true
-
-      - name: Sync and Deploy Database Changes
-        if: github.event_name == 'push'
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
-            echo "Pulling current database state for staging..."
-            supabase db pull --schema public,auth,storage || true
-          else
-            echo "Pulling current database state..."
-            supabase db pull || true
-          fi
-          
-          echo "Pushing new migrations..."
+          echo "Applying schema migrations..."
           supabase db push
+
+      # - name: Run Seed Script (only on staging)
+      #   if: github.ref == 'refs/heads/staging'
+      #   run: |
+      #     echo "Running seed script..."
+      #     # Get the database hostname
+      #     DB_HOST="db.${{ env.SUPABASE_PROJECT_ID }}.supabase.co"
+      #     echo "Database host: $DB_HOST"
+          
+      #     # Resolve the IP address
+      #     DB_IP=$(dig +short $DB_HOST | grep -v ':' | head -n 1)
+      #     echo "Database IP: $DB_IP"
+          
+      #     if [ -z "$DB_IP" ]; then
+      #       echo "Failed to resolve database IP address"
+      #       exit 1
+      #     fi
+          
+      #     # Run the seed script using the IP address
+      #     PGPASSWORD="${{ env.SUPABASE_DB_PASSWORD }}" psql "host=$DB_IP port=5432 dbname=postgres user=postgres" -f supabase/seed.sql
 
       - name: Deploy Supabase Edge Functions
         if: github.event_name == 'push'
@@ -118,11 +107,4 @@ jobs:
             else
               echo "Skipping directory: $d (starts with underscore or not a directory)"
             fi
-          done
-
-      - name: Run seed script (only on staging)
-        if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
-        run: |
-          echo "Running seed script on staging..."
-          # Run db reset without interactive prompt
-          echo "y" | supabase db reset --linked 
+          done 
