@@ -119,4 +119,5 @@ jobs:
         if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
         run: |
           echo "Running seed script on staging..."
-          supabase db reset --linked --yes 
+          # Run db reset without interactive prompt
+          echo "y" | supabase db reset --linked 
