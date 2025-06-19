@@ -61,7 +61,21 @@ jobs:
         if: github.ref == 'refs/heads/staging'
         run: |
           echo "Running seed script..."
-          PGPASSWORD="${{ env.SUPABASE_DB_PASSWORD }}" psql -h "db.${{ env.SUPABASE_PROJECT_ID }}.supabase.co" -U postgres -d postgres -f supabase/seed.sql
+          # Get the database hostname
+          DB_HOST="db.${{ env.SUPABASE_PROJECT_ID }}.supabase.co"
+          echo "Database host: $DB_HOST"
+          
+          # Resolve the IP address
+          DB_IP=$(dig +short $DB_HOST | grep -v ':' | head -n 1)
+          echo "Database IP: $DB_IP"
+          
+          if [ -z "$DB_IP" ]; then
+            echo "Failed to resolve database IP address"
+            exit 1
+          fi
+          
+          # Run the seed script using the IP address
+          PGPASSWORD="${{ env.SUPABASE_DB_PASSWORD }}" psql "host=$DB_IP port=5432 dbname=postgres user=postgres" -f supabase/seed.sql
 
       - name: Deploy Supabase Edge Functions
         if: github.event_name == 'push'
