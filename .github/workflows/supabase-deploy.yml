@@ -36,12 +36,42 @@ jobs:
           version: latest
 
       - name: Login to Supabase
-        run: supabase login ${{ env.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          echo "Logging in to Supabase..."
+          supabase login ${{ env.SUPABASE_ACCESS_TOKEN }}
+          if [ $? -ne 0 ]; then
+            echo "Failed to login to Supabase"
+            exit 1
+          fi
 
       - name: Link to Supabase project
         run: |
           echo "Linking to project: ${{ env.SUPABASE_PROJECT_ID }}"
           supabase link --project-ref ${{ env.SUPABASE_PROJECT_ID }} --password ${{ env.SUPABASE_DB_PASSWORD }}
+          if [ $? -ne 0 ]; then
+            echo "Failed to link project"
+            exit 1
+          fi
+          
+          # Verify project is linked
+          supabase status
+          if [ $? -ne 0 ]; then
+            echo "Project status check failed"
+            exit 1
+          fi
+
+      - name: Update project configuration
+        run: |
+          echo "Updating project configuration..."
+          # Show current config differences
+          supabase db remote changes --linked
+          
+          # Pull remote configuration
+          supabase db remote commit --linked
+          if [ $? -ne 0 ]; then
+            echo "Failed to update configuration"
+            exit 1
+          fi
 
       - name: Repair Migration History
         if: github.event_name == 'push'
@@ -55,6 +85,13 @@ jobs:
           # Then mark them as applied in the correct order
           supabase migration repair --status applied 20250616 || true
           supabase migration repair --status applied 20250617 || true
+          
+          # Verify migration status
+          supabase migration list
+          if [ $? -ne 0 ]; then
+            echo "Migration status check failed"
+            exit 1
+          fi
 
       - name: Sync and Deploy Database Changes
         if: github.event_name == 'push'
@@ -63,7 +100,11 @@ jobs:
           supabase db pull || true
           
           echo "Pushing new migrations..."
-          supabase db push
+          supabase db push --debug
+          if [ $? -ne 0 ]; then
+            echo "Failed to push database changes"
+            exit 1
+          fi
 
       - name: Deploy Supabase Edge Functions
         if: github.event_name == 'push'
@@ -73,6 +114,12 @@ jobs:
           cd "$FUNCTIONS_DIR"
           
           echo "Functions directory: $FUNCTIONS_DIR"
+          
+          # List all functions before deployment
+          echo "Available functions:"
+          ls -la "$FUNCTIONS_DIR"
+          
+          DEPLOY_SUCCESS=true
           
           for d in */ ; do
             if [ -d "$d" ] && [[ ! "$d" =~ ^_.*/ ]]; then
@@ -85,7 +132,11 @@ jobs:
                 
                 # Deploy from the root directory
                 cd "$GITHUB_WORKSPACE"
-                supabase functions deploy "$func_name" --project-ref ${{ env.SUPABASE_PROJECT_ID }} --debug
+                echo "Deploying function: $func_name"
+                if ! supabase functions deploy "$func_name" --project-ref ${{ env.SUPABASE_PROJECT_ID }} --debug; then
+                  echo "Failed to deploy function: $func_name"
+                  DEPLOY_SUCCESS=false
+                fi
                 cd "$FUNCTIONS_DIR"
               else
                 echo "Warning: index.ts not found in $func_name"
@@ -95,8 +146,32 @@ jobs:
               echo "Skipping directory: $d (starts with underscore or not a directory)"
             fi
           done
+          
+          if [ "$DEPLOY_SUCCESS" = false ]; then
+            echo "One or more functions failed to deploy"
+            exit 1
+          fi
 
       - name: Run seed script (only on staging)
         if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
         run: |
-          supabase db reset --linked 
+          echo "Running seed script on staging..."
+          # Use --yes flag to skip confirmation prompt
+          supabase db reset --linked --yes
+          if [ $? -ne 0 ]; then
+            echo "Failed to run seed script"
+            exit 1
+          fi
+          
+          # Verify seed data
+          echo "Verifying seed data..."
+          supabase db dump --linked
+
+      - name: Verify Deployment
+        run: |
+          echo "Verifying deployment..."
+          supabase status
+          if [ $? -ne 0 ]; then
+            echo "Final status check failed"
+            exit 1
+          fi 
