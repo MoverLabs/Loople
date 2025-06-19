@@ -18,7 +18,6 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ github.ref == 'refs/heads/main' && secrets.SUPABASE_ACCESS_TOKEN_MAIN || secrets.SUPABASE_ACCESS_TOKEN_STAGING }}
       SUPABASE_DB_PASSWORD: ${{ github.ref == 'refs/heads/main' && secrets.SUPABASE_DB_PASSWORD_MAIN || secrets.SUPABASE_DB_PASSWORD_STAGING }}
       SUPABASE_PROJECT_ID: ${{ github.ref == 'refs/heads/main' && secrets.SUPABASE_PROJECT_ID_MAIN || secrets.SUPABASE_PROJECT_ID_STAGING }}
-      SUPABASE_ANON_KEY: ${{ github.ref == 'refs/heads/main' && secrets.SUPABASE_ANON_KEY_MAIN || secrets.SUPABASE_ANON_KEY_STAGING }}
       
     steps:
       - name: Checkout repository
@@ -42,9 +41,7 @@ jobs:
       - name: Link to Supabase project
         run: |
           echo "Linking to project: ${{ env.SUPABASE_PROJECT_ID }}"
-          supabase link --project-ref ${{ env.SUPABASE_PROJECT_ID }} \
-            --password ${{ env.SUPABASE_DB_PASSWORD }} \
-            --anon-key ${{ env.SUPABASE_ANON_KEY }}
+          supabase link --project-ref ${{ env.SUPABASE_PROJECT_ID }} --password ${{ env.SUPABASE_DB_PASSWORD }}
 
       - name: Repair Migration History
         if: github.event_name == 'push'
