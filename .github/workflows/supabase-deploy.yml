@@ -45,11 +45,11 @@ jobs:
           echo "Linking to project: ${{ env.SUPABASE_PROJECT_ID }}"
           supabase link --project-ref ${{ env.SUPABASE_PROJECT_ID }} --password ${{ env.SUPABASE_DB_PASSWORD }}
 
-      - name: Reset Database (only on staging)
-        if: github.ref == 'refs/heads/staging'
-        run: |
-          echo "Resetting staging database..."
-          echo "y" | supabase db reset --linked
+      # - name: Reset Database (only on staging)
+      #   if: github.ref == 'refs/heads/staging'
+      #   run: |
+      #     echo "Resetting staging database..."
+      #     echo "y" | supabase db reset --linked
 
       - name: Apply Schema Migrations
         if: github.event_name == 'push'
