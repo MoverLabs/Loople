@@ -36,7 +36,9 @@ jobs:
           version: latest
 
       - name: Login to Supabase
-        run: supabase login ${{ env.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          echo "Logging in to Supabase..."
+          supabase login ${{ env.SUPABASE_ACCESS_TOKEN }}
 
       - name: Link to Supabase project
         run: |
@@ -85,7 +87,8 @@ jobs:
                 
                 # Deploy from the root directory
                 cd "$GITHUB_WORKSPACE"
-                supabase functions deploy "$func_name" --project-ref ${{ env.SUPABASE_PROJECT_ID }} --debug
+                echo "Deploying function: $func_name"
+                supabase functions deploy "$func_name" --project-ref ${{ env.SUPABASE_PROJECT_ID }}
                 cd "$FUNCTIONS_DIR"
               else
                 echo "Warning: index.ts not found in $func_name"
@@ -99,4 +102,5 @@ jobs:
       - name: Run seed script (only on staging)
         if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
         run: |
-          supabase db reset --linked 
+          echo "Running seed script on staging..."
+          supabase db reset --linked --yes 
