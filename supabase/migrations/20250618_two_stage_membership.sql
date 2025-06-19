@@ -51,9 +51,12 @@ ALTER TABLE members ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP WITH TIME ZON
 ALTER TABLE members ADD COLUMN IF NOT EXISTS membership_notes TEXT;
 
 -- Update membership_status enum to include our workflow states
--- First check current enum values
 DO $$
 BEGIN
+  -- First, remove the default constraint
+  ALTER TABLE members 
+    ALTER COLUMN membership_status DROP DEFAULT;
+
   -- Drop and recreate enum with all needed values
   ALTER TYPE membership_status_enum RENAME TO membership_status_enum_old;
   
@@ -69,6 +72,10 @@ BEGIN
   ALTER TABLE members 
     ALTER COLUMN membership_status TYPE membership_status_enum 
     USING membership_status::text::membership_status_enum;
+  
+  -- Add back the default value
+  ALTER TABLE members 
+    ALTER COLUMN membership_status SET DEFAULT 'pending'::membership_status_enum;
   
   -- Drop old enum
   DROP TYPE membership_status_enum_old;
