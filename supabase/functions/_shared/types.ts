@@ -13,9 +13,9 @@ export enum EventType {
 }
 
 export enum MemberType {
-  INDIVIDUAL = 'individual',
-  FAMILY_PRIMARY = 'family_primary',
-  FAMILY_DEPENDENT = 'family_dependent'
+  ADULT = 'adult',
+  CHILD = 'child',
+  FAMILY = 'family'
 }
 
 export enum MembershipStatus {
