@@ -44,9 +44,30 @@ jobs:
             exit 1
           fi
 
-      - name: Link to Supabase project
+      - name: Initialize Supabase config
+        run: |
+          echo "Initializing Supabase configuration..."
+          # Initialize without prompts
+          supabase init
+          if [ $? -ne 0 ]; then
+            echo "Failed to initialize Supabase"
+            exit 1
+          fi
+
+      - name: Link and Configure Project
         run: |
           echo "Linking to project: ${{ env.SUPABASE_PROJECT_ID }}"
+          
+          # First, get the remote config
+          echo "Fetching remote configuration..."
+          supabase remote config get --project-ref ${{ env.SUPABASE_PROJECT_ID }} > remote_config.toml
+          
+          # Apply remote config locally
+          echo "Applying remote configuration..."
+          cp remote_config.toml supabase/config.toml
+          
+          # Now link the project
+          echo "Linking project..."
           supabase link --project-ref ${{ env.SUPABASE_PROJECT_ID }} --password ${{ env.SUPABASE_DB_PASSWORD }}
           if [ $? -ne 0 ]; then
             echo "Failed to link project"
@@ -54,22 +75,10 @@ jobs:
           fi
           
           # Verify project is linked
+          echo "Verifying project link..."
           supabase status
           if [ $? -ne 0 ]; then
             echo "Project status check failed"
-            exit 1
-          fi
-
-      - name: Update project configuration
-        run: |
-          echo "Updating project configuration..."
-          # Show current config differences
-          supabase db remote changes --linked
-          
-          # Pull remote configuration
-          supabase db remote commit --linked
-          if [ $? -ne 0 ]; then
-            echo "Failed to update configuration"
             exit 1
           fi
 
@@ -157,7 +166,7 @@ jobs:
         run: |
           echo "Running seed script on staging..."
           # Use --yes flag to skip confirmation prompt
-          supabase db reset --linked --yes
+          supabase db reset --linked --yes --debug
           if [ $? -ne 0 ]; then
             echo "Failed to run seed script"
             exit 1
