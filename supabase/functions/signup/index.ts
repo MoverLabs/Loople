@@ -289,7 +289,7 @@ serve(async (req: Request) => {
           date_of_birth: requestData.data.birth_date
             ? new Date(requestData.data.birth_date)
             : undefined,
-          member_type: MemberType.INDIVIDUAL,
+          member_type: MemberType.ADULT,
           created_at: new Date(),
           updated_at: new Date(),
         });
