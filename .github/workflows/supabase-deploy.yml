@@ -49,7 +49,13 @@ jobs:
         if: github.event_name == 'push'
         run: |
           echo "Repairing migration history..."
-          # First mark problematic migrations as reverted
+          
+          if [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
+            echo "Running staging-specific migration repairs..."
+            supabase migration repair --status reverted 20250619025416 || true
+          fi
+          
+          # Common migrations for both branches
           supabase migration repair --status reverted 20240319000000 || true
           supabase migration repair --status reverted 20250616 || true
           supabase migration repair --status reverted 20250617 || true
@@ -57,12 +63,22 @@ jobs:
           # Then mark them as applied in the correct order
           supabase migration repair --status applied 20250616 || true
           supabase migration repair --status applied 20250617 || true
+          
+          if [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
+            echo "Applying staging-specific migrations..."
+            supabase migration repair --status applied 20250619025416 || true
+          fi
 
       - name: Sync and Deploy Database Changes
         if: github.event_name == 'push'
         run: |
-          echo "Pulling current database state..."
-          supabase db pull || true
+          if [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
+            echo "Pulling current database state for staging..."
+            supabase db pull --schema public,auth,storage || true
+          else
+            echo "Pulling current database state..."
+            supabase db pull || true
+          fi
           
           echo "Pushing new migrations..."
           supabase db push
