@@ -5,13 +5,6 @@ import { ApiResponse, Member, MembershipStatus, MemberType } from '../_shared/ty
 
 interface JoinClubRequest {
     club_id: number
-    first_name: string
-    last_name: string
-    email: string
-    phone?: string
-    member_type: MemberType
-    emergency_contact_name?: string
-    emergency_contact_phone?: string
 }
 
 serve(async (req) => {
@@ -52,29 +45,11 @@ serve(async (req) => {
         const requestData: JoinClubRequest = await req.json()
 
         // Validate required fields
-        const requiredFields = ['club_id', 'first_name', 'last_name', 'email', 'member_type'] as const
-        for (const field of requiredFields) {
-            if (!requestData[field]) {
-                return new Response(
-                    JSON.stringify({
-                        success: false,
-                        error: `Missing required field: ${field}`
-                    } as ApiResponse<null>),
-                    {
-                        status: 400,
-                        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-                    }
-                )
-            }
-        }
-
-        // Validate email format
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-        if (!emailRegex.test(requestData.email)) {
+        if (!requestData.club_id) {
             return new Response(
                 JSON.stringify({
                     success: false,
-                    error: 'Invalid email format'
+                    error: 'Missing required field: club_id'
                 } as ApiResponse<null>),
                 {
                     status: 400,
@@ -137,6 +112,26 @@ serve(async (req) => {
             )
         }
 
+        // Get user information from the users table
+        const { data: userData, error: userDataError } = await supabaseClient
+            .from('users')
+            .select('first_name, last_name, email, phone')
+            .eq('id', user.id)
+            .single()
+
+        if (userDataError) {
+            return new Response(
+                JSON.stringify({
+                    success: false,
+                    error: 'Error fetching user data'
+                } as ApiResponse<null>),
+                {
+                    status: 500,
+                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                }
+            )
+        }
+
         // Create the member record
         const { data: member, error: createError } = await supabaseClient
             .from('members')
@@ -144,13 +139,11 @@ serve(async (req) => {
                 {
                     club_id: requestData.club_id,
                     user_id: user.id,
-                    first_name: requestData.first_name,
-                    last_name: requestData.last_name,
-                    email: requestData.email,
-                    phone: requestData.phone,
-                    member_type: requestData.member_type,
-                    emergency_contact_name: requestData.emergency_contact_name,
-                    emergency_contact_phone: requestData.emergency_contact_phone,
+                    first_name: userData.first_name,
+                    last_name: userData.last_name,
+                    email: userData.email,
+                    phone: userData.phone,
+                    member_type: MemberType.ADULT,
                     membership_status: MembershipStatus.PENDING,
                     membership_start_date: new Date().toISOString(),
                 },
