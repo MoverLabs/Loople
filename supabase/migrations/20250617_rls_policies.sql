@@ -93,22 +93,21 @@ CREATE POLICY "Clubs are manageable by owners"
     USING (auth.uid()::text = owner_id::text);
 
 -- Basic policies for members
-CREATE POLICY "Members are viewable by club members"
+CREATE POLICY "Members are viewable by club members and owners"
     ON members FOR SELECT
     USING (
+        -- Club owners can view all members
         EXISTS (
             SELECT 1 FROM clubs c
             WHERE c.id = members.club_id
-            AND (
-                c.owner_id::text = auth.uid()::text
-                OR EXISTS (
-                    SELECT 1 FROM members m
-                    WHERE m.club_id = c.id
-                    AND m.user_id::text = auth.uid()::text
-                    AND m.membership_status != 'pending'
-                )
-            )
+            AND c.owner_id::text = auth.uid()::text
         )
+        OR
+        -- Members can view other members in their clubs
+        members.user_id::text = auth.uid()::text
+        OR
+        -- Service role can view all
+        (auth.jwt() ->> 'role') = 'service_role'
     );
 
 CREATE POLICY "Members can be created by authenticated users"
@@ -116,6 +115,10 @@ CREATE POLICY "Members can be created by authenticated users"
     WITH CHECK (
         auth.uid() IS NOT NULL 
         AND auth.uid()::text = user_id::text
+        AND EXISTS (
+            SELECT 1 FROM clubs c
+            WHERE c.id = club_id
+        )
     );
 
 CREATE POLICY "Members can be managed by club owners"
