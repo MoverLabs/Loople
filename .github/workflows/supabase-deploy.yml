@@ -86,25 +86,21 @@ jobs:
           
           echo "Functions directory: $FUNCTIONS_DIR"
           
-          for d in */ ; do
-            if [ -d "$d" ] && [[ ! "$d" =~ ^_.*/ ]]; then
-              func_name=${d%/}
-              echo "Checking function: $func_name"
-              
-              if [ -f "$func_name/index.ts" ]; then
-                echo "Found index.ts in $func_name"
-                echo "Full path: $FUNCTIONS_DIR/$func_name/index.ts"
-                
-                # Deploy from the root directory
-                cd "$GITHUB_WORKSPACE"
-                echo "Deploying function: $func_name"
-                supabase functions deploy "$func_name" --project-ref ${{ env.SUPABASE_PROJECT_ID }}
-                cd "$FUNCTIONS_DIR"
-              else
-                echo "Warning: index.ts not found in $func_name"
-                ls -la "$FUNCTIONS_DIR/$func_name"
-              fi
-            else
-              echo "Skipping directory: $d (starts with underscore or not a directory)"
+          # Find all index.ts files recursively, excluding _shared and other underscore directories
+          find . -type f -name "index.ts" | while read -r file; do
+            # Skip if path contains underscore directory
+            if [[ "$file" == *"/_"* ]]; then
+              echo "Skipping shared/utility file: $file"
+              continue
             fi
+            
+            # Get the directory path relative to functions dir
+            rel_path=$(dirname "${file#./}")
+            echo "Found function at path: $rel_path"
+            
+            # Deploy the function using the full path as the function name
+            cd "$GITHUB_WORKSPACE"
+            echo "Deploying function: $rel_path"
+            supabase functions deploy "$rel_path" --project-ref ${{ env.SUPABASE_PROJECT_ID }}
+            cd "$FUNCTIONS_DIR"
           done 
