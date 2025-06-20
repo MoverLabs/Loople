@@ -111,7 +111,7 @@ jobs:
                   echo "Deploying as: $endpoint_name"
                   
                   # Create a temporary directory for this endpoint
-                  temp_dir="$FUNCTIONS_DIR/temp-$endpoint_name"
+                  temp_dir="$FUNCTIONS_DIR/$endpoint_name"
                   mkdir -p "$temp_dir"
                   cp "$ts_file" "$temp_dir/index.ts"
                   
