@@ -86,7 +86,7 @@ jobs:
           
           echo "Functions directory: $FUNCTIONS_DIR"
           
-          # First, find all top-level functions
+          # First, find all functions
           for d in */ ; do
             if [[ ! "$d" =~ ^_.*/ ]]; then  # Skip _shared and other utility folders
               func_dir=${d%/}  # Remove trailing slash
@@ -102,10 +102,14 @@ jobs:
               # Check for nested functions
               for nested in "$func_dir"/*/ ; do
                 if [ -f "$nested/index.ts" ]; then
-                  nested_func=${nested%/}  # Remove trailing slash
-                  echo "Deploying nested function: $nested_func"
+                  # Get the nested path without trailing slash
+                  nested_path=${nested%/}
+                  # Convert path to hyphenated name (e.g., clubs/join -> clubs-join)
+                  func_name=$(echo "$nested_path" | tr '/' '-')
+                  echo "Found nested function at: $nested_path"
+                  echo "Deploying as: $func_name"
                   cd "$GITHUB_WORKSPACE"
-                  supabase functions deploy "$nested_func" --project-ref ${{ env.SUPABASE_PROJECT_ID }}
+                  supabase functions deploy "$func_name" --project-ref ${{ env.SUPABASE_PROJECT_ID }}
                   cd "$FUNCTIONS_DIR"
                 fi
               done
