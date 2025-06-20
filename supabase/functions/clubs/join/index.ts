@@ -7,7 +7,12 @@ interface JoinClubRequest {
     club_id: number
 }
 
-export default async function joinHandler(req: Request) {
+serve(async (req) => {
+    // Handle CORS
+    if (req.method === 'OPTIONS') {
+        return new Response('ok', { headers: corsHeaders })
+    }
+
     try {
         // Create Supabase client
         const supabaseClient = createClient(
@@ -181,4 +186,4 @@ export default async function joinHandler(req: Request) {
             }
         )
     }
-} 
+}) 
