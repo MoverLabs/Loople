@@ -77,34 +77,41 @@ jobs:
       #     # Run the seed script using the IP address
       #     PGPASSWORD="${{ env.SUPABASE_DB_PASSWORD }}" psql "host=$DB_IP port=5432 dbname=postgres user=postgres" -f supabase/seed.sql
 
-      - name: Deploy Supabase Edge Functions
+      - name: Deploy and Verify Supabase Edge Functions
         if: github.event_name == 'push'
         run: |
-          # Get absolute path to functions directory
-          FUNCTIONS_DIR="$GITHUB_WORKSPACE/supabase/functions"
-          cd "$FUNCTIONS_DIR"
+          echo "Starting Edge Functions deployment..."
           
-          echo "Functions directory: $FUNCTIONS_DIR"
+          # List all functions before deployment
+          echo "Current functions:"
+          supabase functions list --project-ref ${{ env.SUPABASE_PROJECT_ID }}
           
+          # Deploy each function
+          cd supabase/functions
           for d in */ ; do
             if [ -d "$d" ] && [[ ! "$d" =~ ^_.*/ ]]; then
               func_name=${d%/}
-              echo "Checking function: $func_name"
-              
-              if [ -f "$func_name/index.ts" ]; then
-                echo "Found index.ts in $func_name"
-                echo "Full path: $FUNCTIONS_DIR/$func_name/index.ts"
-                
-                # Deploy from the root directory
-                cd "$GITHUB_WORKSPACE"
+              if [ -f "$d/index.ts" ]; then
                 echo "Deploying function: $func_name"
-                supabase functions deploy "$func_name" --project-ref ${{ env.SUPABASE_PROJECT_ID }}
-                cd "$FUNCTIONS_DIR"
+                supabase functions deploy "$func_name" --project-ref ${{ env.SUPABASE_PROJECT_ID }} --no-verify-jwt || {
+                  echo "Failed to deploy function: $func_name"
+                  exit 1
+                }
+                
+                # Verify deployment
+                echo "Verifying deployment of $func_name..."
+                supabase functions list --project-ref ${{ env.SUPABASE_PROJECT_ID }} | grep -q "$func_name" || {
+                  echo "Function $func_name not found after deployment!"
+                  exit 1
+                }
+                echo "✓ Function $func_name deployed and verified"
               else
                 echo "Warning: index.ts not found in $func_name"
-                ls -la "$FUNCTIONS_DIR/$func_name"
+                ls -la "$d"
               fi
-            else
-              echo "Skipping directory: $d (starts with underscore or not a directory)"
             fi
-          done 
+          done
+          
+          # List all functions after deployment
+          echo "Updated functions list:"
+          supabase functions list --project-ref ${{ env.SUPABASE_PROJECT_ID }} 
