@@ -86,31 +86,42 @@ jobs:
           
           echo "Functions directory: $FUNCTIONS_DIR"
           
-          # First, find all functions
+          # Deploy functions
           for d in */ ; do
             if [[ ! "$d" =~ ^_.*/ ]]; then  # Skip _shared and other utility folders
               func_dir=${d%/}  # Remove trailing slash
               
-              # Check if this is a direct function (has index.ts)
+              # First check for index.ts in the directory (main endpoint)
               if [ -f "$func_dir/index.ts" ]; then
-                echo "Deploying top-level function: $func_dir"
+                echo "Deploying main endpoint: $func_dir"
                 cd "$GITHUB_WORKSPACE"
                 supabase functions deploy "$func_dir" --project-ref ${{ env.SUPABASE_PROJECT_ID }}
                 cd "$FUNCTIONS_DIR"
               fi
               
-              # Check for nested functions
-              for nested in "$func_dir"/*/ ; do
-                if [ -f "$nested/index.ts" ]; then
-                  # Get the nested path without trailing slash
-                  nested_path=${nested%/}
-                  # Convert path to hyphenated name (e.g., clubs/join -> clubs-join)
-                  func_name=$(echo "$nested_path" | tr '/' '-')
-                  echo "Found nested function at: $nested_path"
-                  echo "Deploying as: $func_name"
+              # Then check for other .ts files (sub-endpoints)
+              for ts_file in "$func_dir"/*.ts; do
+                if [ -f "$ts_file" ] && [ "$(basename "$ts_file")" != "index.ts" ]; then
+                  # Get the filename without .ts
+                  func_name=$(basename "$ts_file" .ts)
+                  # Create the endpoint name (e.g., clubs/join.ts -> clubs-join)
+                  endpoint_name="$func_dir-$func_name"
+                  
+                  echo "Found sub-endpoint: $ts_file"
+                  echo "Deploying as: $endpoint_name"
+                  
+                  # Create a temporary directory for this endpoint
+                  temp_dir="$FUNCTIONS_DIR/temp-$endpoint_name"
+                  mkdir -p "$temp_dir"
+                  cp "$ts_file" "$temp_dir/index.ts"
+                  
+                  # Deploy from the temporary directory
                   cd "$GITHUB_WORKSPACE"
-                  supabase functions deploy "$func_name" --project-ref ${{ env.SUPABASE_PROJECT_ID }}
+                  supabase functions deploy "$endpoint_name" --project-ref ${{ env.SUPABASE_PROJECT_ID }}
                   cd "$FUNCTIONS_DIR"
+                  
+                  # Clean up
+                  rm -rf "$temp_dir"
                 fi
               done
             fi
