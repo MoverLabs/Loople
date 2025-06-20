@@ -8,6 +8,8 @@ interface JoinClubRequest {
 }
 
 serve(async (req) => {
+    console.log('Starting join club request')
+    
     // Handle CORS
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders })
@@ -15,9 +17,17 @@ serve(async (req) => {
 
     try {
         // Create Supabase client
+        const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
+        const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
+        console.log('Supabase Config:', { 
+            url: supabaseUrl,
+            hasAnonKey: !!supabaseAnonKey,
+            authHeader: req.headers.get('Authorization')
+        })
+
         const supabaseClient = createClient(
-            Deno.env.get('SUPABASE_URL') ?? '',
-            Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+            supabaseUrl,
+            supabaseAnonKey,
             {
                 global: {
                     headers: { Authorization: req.headers.get('Authorization')! },
@@ -31,7 +41,11 @@ serve(async (req) => {
             error: userError,
         } = await supabaseClient.auth.getUser()
 
-        console.log('Auth User:', { userId: user?.id, userError })
+        console.log('Auth User:', { 
+            userId: user?.id, 
+            userEmail: user?.email,
+            userError: userError?.message 
+        })
 
         if (userError || !user) {
             return new Response(
@@ -68,13 +82,14 @@ serve(async (req) => {
         // Check if club exists
         const { data: club, error: clubError } = await supabaseClient
             .from('clubs')
-            .select('id')
+            .select('id, name')
             .eq('id', clubId)
             .single()
 
         console.log('Club Query:', { 
             clubId: clubId, 
             clubFound: !!club, 
+            clubName: club?.name,
             club,
             clubError 
         })
@@ -93,18 +108,33 @@ serve(async (req) => {
         }
 
         // Check if user is already a member of this club
+        console.log('Checking existing membership for:', {
+            clubId,
+            userId: user.id
+        })
+
         const { data: existingMember, error: memberError } = await supabaseClient
             .from('members')
-            .select('id, membership_status')
+            .select('id, membership_status, user_id, club_id')
             .eq('club_id', clubId)
             .eq('user_id', user.id)
             .single()
 
+        console.log('Membership Check Result:', {
+            existingMember,
+            memberError,
+            errorCode: memberError?.code,
+            errorMessage: memberError?.message,
+            errorDetails: memberError?.details
+        })
+
         if (memberError && memberError.code !== 'PGRST116') {
+            console.error('Membership check failed:', memberError)
             return new Response(
                 JSON.stringify({
                     success: false,
-                    error: 'Error checking membership'
+                    error: 'Error checking membership',
+                    details: memberError.message
                 } as ApiResponse<null>),
                 {
                     status: 500,
@@ -127,17 +157,25 @@ serve(async (req) => {
         }
 
         // Get user information from the users table
+        console.log('Fetching user data for:', user.id)
         const { data: userData, error: userDataError } = await supabaseClient
             .from('users')
             .select('first_name, last_name, email, phone')
             .eq('id', user.id)
             .single()
 
+        console.log('User Data Result:', {
+            userData,
+            userDataError
+        })
+
         if (userDataError) {
+            console.error('User data fetch failed:', userDataError)
             return new Response(
                 JSON.stringify({
                     success: false,
-                    error: 'Error fetching user data'
+                    error: 'Error fetching user data',
+                    details: userDataError.message
                 } as ApiResponse<null>),
                 {
                     status: 500,
@@ -147,6 +185,13 @@ serve(async (req) => {
         }
 
         // Create the member record
+        console.log('Creating member record:', {
+            clubId,
+            userId: user.id,
+            firstName: userData.first_name,
+            lastName: userData.last_name
+        })
+
         const { data: member, error: createError } = await supabaseClient
             .from('members')
             .insert([
@@ -165,11 +210,19 @@ serve(async (req) => {
             .select()
             .single()
 
+        console.log('Member Creation Result:', {
+            success: !!member,
+            member,
+            createError
+        })
+
         if (createError) {
+            console.error('Member creation failed:', createError)
             return new Response(
                 JSON.stringify({
                     success: false,
-                    error: 'Error creating membership'
+                    error: 'Error creating membership',
+                    details: createError.message
                 } as ApiResponse<null>),
                 {
                     status: 500,
@@ -178,6 +231,7 @@ serve(async (req) => {
             )
         }
 
+        console.log('Successfully created membership')
         return new Response(
             JSON.stringify({
                 success: true,
@@ -189,10 +243,12 @@ serve(async (req) => {
             }
         )
     } catch (error) {
+        console.error('Unexpected error:', error)
         return new Response(
             JSON.stringify({
                 success: false,
-                error: 'Internal server error'
+                error: 'Internal server error',
+                details: error.message
             } as ApiResponse<null>),
             {
                 status: 500,

@@ -105,13 +105,31 @@ CREATE POLICY "Members are viewable by club members"
                     SELECT 1 FROM members m
                     WHERE m.club_id = c.id
                     AND m.user_id::text = auth.uid()::text
+                    AND m.membership_status != 'pending'
                 )
             )
         )
     );
 
-CREATE POLICY "Members are manageable by club owners"
-    ON members FOR ALL
+CREATE POLICY "Members can be created by authenticated users"
+    ON members FOR INSERT
+    WITH CHECK (
+        auth.uid() IS NOT NULL 
+        AND auth.uid()::text = user_id::text
+    );
+
+CREATE POLICY "Members can be managed by club owners"
+    ON members FOR UPDATE
+    USING (
+        EXISTS (
+            SELECT 1 FROM clubs c
+            WHERE c.id = members.club_id
+            AND c.owner_id::text = auth.uid()::text
+        )
+    );
+
+CREATE POLICY "Members can be deleted by club owners"
+    ON members FOR DELETE
     USING (
         EXISTS (
             SELECT 1 FROM clubs c
