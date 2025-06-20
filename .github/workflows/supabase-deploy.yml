@@ -86,21 +86,28 @@ jobs:
           
           echo "Functions directory: $FUNCTIONS_DIR"
           
-          # Find all index.ts files recursively, excluding _shared and other underscore directories
-          find . -type f -name "index.ts" | while read -r file; do
-            # Skip if path contains underscore directory
-            if [[ "$file" == *"/_"* ]]; then
-              echo "Skipping shared/utility file: $file"
-              continue
+          # First, find all top-level functions
+          for d in */ ; do
+            if [[ ! "$d" =~ ^_.*/ ]]; then  # Skip _shared and other utility folders
+              func_dir=${d%/}  # Remove trailing slash
+              
+              # Check if this is a direct function (has index.ts)
+              if [ -f "$func_dir/index.ts" ]; then
+                echo "Deploying top-level function: $func_dir"
+                cd "$GITHUB_WORKSPACE"
+                supabase functions deploy "$func_dir" --project-ref ${{ env.SUPABASE_PROJECT_ID }}
+                cd "$FUNCTIONS_DIR"
+              fi
+              
+              # Check for nested functions
+              for nested in "$func_dir"/*/ ; do
+                if [ -f "$nested/index.ts" ]; then
+                  nested_func=${nested%/}  # Remove trailing slash
+                  echo "Deploying nested function: $nested_func"
+                  cd "$GITHUB_WORKSPACE"
+                  supabase functions deploy "$nested_func" --project-ref ${{ env.SUPABASE_PROJECT_ID }}
+                  cd "$FUNCTIONS_DIR"
+                fi
+              done
             fi
-            
-            # Get the directory path relative to functions dir
-            rel_path=$(dirname "${file#./}")
-            echo "Found function at path: $rel_path"
-            
-            # Deploy the function using the full path as the function name
-            cd "$GITHUB_WORKSPACE"
-            echo "Deploying function: $rel_path"
-            supabase functions deploy "$rel_path" --project-ref ${{ env.SUPABASE_PROJECT_ID }}
-            cd "$FUNCTIONS_DIR"
           done 
