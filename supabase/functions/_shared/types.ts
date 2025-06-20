@@ -21,7 +21,8 @@ export enum MemberType {
 export enum MembershipStatus {
   ACTIVE = 'active',
   INACTIVE = 'inactive',
-  SUSPENDED = 'suspended'
+  SUSPENDED = 'suspended',
+  PENDING = 'pending'
 }
 
 export enum MessageContentType {
