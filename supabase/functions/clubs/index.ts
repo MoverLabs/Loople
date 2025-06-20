@@ -23,171 +23,32 @@ serve(async (req) => {
     return new Response('ok', { headers: corsHeaders })
   }
 
+  // Get the path from the request URL
+  const url = new URL(req.url)
+  const path = url.pathname.split('/').pop()
+
   try {
-    // Create Supabase client
-    const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      {
-        global: {
-          headers: { Authorization: req.headers.get('Authorization')! },
-        },
-      }
-    )
-
-    // Get the user from the auth token
-    const {
-      data: { user },
-      error: userError,
-    } = await supabaseClient.auth.getUser()
-
-    if (userError || !user) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Unauthorized' } as ApiResponse<null>),
-        {
-          status: 401,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      )
-    }
-
-    // Get request body
-    const requestData: CreateClubRequest = await req.json()
-
-    // Validate required fields
-    const requiredFields = [
-      'name',
-      'subdomain',
-      'description',
-      'contact_email',
-      'contact_phone',
-      'address',
-      'city',
-      'state',
-      'zip_code',
-      'owner_id',
-    ] as const
-
-    for (const field of requiredFields) {
-      if (!requestData[field]) {
+    switch (path) {
+      case 'join':
+        const { default: joinHandler } = await import('./join.ts')
+        return await joinHandler(req)
+      default:
         return new Response(
-          JSON.stringify({ 
-            success: false, 
-            error: `Missing required field: ${field}` 
+          JSON.stringify({
+            success: false,
+            error: 'Invalid endpoint'
           } as ApiResponse<null>),
           {
-            status: 400,
+            status: 404,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           }
         )
-      }
     }
-
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(requestData.contact_email)) {
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: 'Invalid email format' 
-        } as ApiResponse<null>),
-        {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      )
-    }
-
-    // Validate phone format (basic validation)
-    const phoneRegex = /^\(\d{3}\) \d{3}-\d{4}$/
-    if (!phoneRegex.test(requestData.contact_phone)) {
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: 'Invalid phone format. Use format: (XXX) XXX-XXXX' 
-        } as ApiResponse<null>),
-        {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      )
-    }
-
-    // Check if subdomain is already taken
-    const { data: existingClub, error: subdomainError } = await supabaseClient
-      .from('clubs')
-      .select('id')
-      .eq('subdomain', requestData.subdomain)
-      .single()
-
-    if (subdomainError && subdomainError.code !== 'PGRST116') {
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: 'Error checking subdomain availability' 
-        } as ApiResponse<null>),
-        {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      )
-    }
-
-    if (existingClub) {
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: 'Subdomain already taken' 
-        } as ApiResponse<null>),
-        {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      )
-    }
-
-    // Create the club
-    const { data: club, error: createError } = await supabaseClient
-      .from('clubs')
-      .insert([
-        {
-          ...requestData,
-          onboarding_completed: false,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-      ])
-      .select()
-      .single()
-
-    if (createError) {
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: 'Error creating club' 
-        } as ApiResponse<null>),
-        {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      )
-    }
-
-    return new Response(
-      JSON.stringify({ 
-        success: true, 
-        data: club 
-      } as ApiResponse<Club>),
-      {
-        status: 201,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
-    )
   } catch (error) {
     return new Response(
-      JSON.stringify({ 
-        success: false, 
-        error: 'Internal server error' 
+      JSON.stringify({
+        success: false,
+        error: 'Internal server error'
       } as ApiResponse<null>),
       {
         status: 500,
