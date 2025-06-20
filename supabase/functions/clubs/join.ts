@@ -31,6 +31,8 @@ serve(async (req) => {
             error: userError,
         } = await supabaseClient.auth.getUser()
 
+        console.log('Auth User:', { userId: user?.id, userError })
+
         if (userError || !user) {
             return new Response(
                 JSON.stringify({ success: false, error: 'Unauthorized' } as ApiResponse<null>),
@@ -43,13 +45,18 @@ serve(async (req) => {
 
         // Get request body
         const requestData: JoinClubRequest = await req.json()
+        console.log('Request Data (before conversion):', requestData)
+        
+        // Convert club_id to number if it's a string
+        const clubId = typeof requestData.club_id === 'string' ? parseInt(requestData.club_id, 10) : requestData.club_id
+        console.log('Converted club_id:', clubId)
 
         // Validate required fields
-        if (!requestData.club_id) {
+        if (!clubId || isNaN(clubId)) {
             return new Response(
                 JSON.stringify({
                     success: false,
-                    error: 'Missing required field: club_id'
+                    error: 'Invalid club_id: must be a valid number'
                 } as ApiResponse<null>),
                 {
                     status: 400,
@@ -62,8 +69,15 @@ serve(async (req) => {
         const { data: club, error: clubError } = await supabaseClient
             .from('clubs')
             .select('id')
-            .eq('id', requestData.club_id)
+            .eq('id', clubId)
             .single()
+
+        console.log('Club Query:', { 
+            clubId: clubId, 
+            clubFound: !!club, 
+            club,
+            clubError 
+        })
 
         if (clubError || !club) {
             return new Response(
@@ -82,7 +96,7 @@ serve(async (req) => {
         const { data: existingMember, error: memberError } = await supabaseClient
             .from('members')
             .select('id, membership_status')
-            .eq('club_id', requestData.club_id)
+            .eq('club_id', clubId)
             .eq('user_id', user.id)
             .single()
 
@@ -137,7 +151,7 @@ serve(async (req) => {
             .from('members')
             .insert([
                 {
-                    club_id: requestData.club_id,
+                    club_id: clubId,
                     user_id: user.id,
                     first_name: userData.first_name,
                     last_name: userData.last_name,
