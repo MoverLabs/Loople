@@ -44,6 +44,3 @@ coverage/
 *.tmp
 *.temp 
 
-/supabase/functions/clubs/onboarding.ts
-/supabase/functions/clubs/bulk-invite.ts
-/supabase/functions/clubs/invite.ts
