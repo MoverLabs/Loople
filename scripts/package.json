@@ -2,7 +2,8 @@
   "type": "module",
   "dependencies": {
     "typescript": "^5.0.0",
-    "tsx": "^4.7.0"
+    "tsx": "^4.7.0",
+    "@supabase/supabase-js": "^2.39.0"
   },
   "devDependencies": {
     "@types/node": "^18.0.0"

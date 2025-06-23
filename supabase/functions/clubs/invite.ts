@@ -1,7 +1,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
-import { ApiResponse, Member, MembershipStatus, MemberType } from '../_shared/types.ts'
+import { ApiResponse, Member, MembershipStatus, MemberType, ParticipantRole } from '../_shared/types.ts'
 
 interface InviteRequest {
   club_id: number
@@ -18,10 +18,10 @@ serve(async (req) => {
   }
 
   try {
-    // Create Supabase client
+    // Create Supabase client with service role key for admin operations
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
       {
         global: {
           headers: { Authorization: req.headers.get('Authorization')! },
@@ -160,6 +160,48 @@ serve(async (req) => {
       )
     }
 
+    // Check if user exists in auth system
+    const { data: existingAuthUser, error: authUserError } = await supabaseClient
+      .from('users')
+      .select('id')
+      .eq('email', requestData.email)
+      .single()
+
+    let invitedUserId = existingAuthUser?.id
+
+    // If user doesn't exist, create a new user with magic link
+    if (!existingAuthUser) {
+      // Create new user in auth system without a password
+      const { data: newAuthUser, error: createUserError } = await supabaseClient.auth.admin.createUser({
+        email: requestData.email,
+        email_confirm: false, // Set to false so they need to verify email
+        user_metadata: {
+          first_name: requestData.first_name,
+          last_name: requestData.last_name,
+          full_name: `${requestData.first_name} ${requestData.last_name}`,
+          role: ParticipantRole.MEMBER
+        }
+      })
+
+      if (createUserError) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: 'Failed to create user account'
+          } as ApiResponse<null>),
+          {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        )
+      }
+
+      invitedUserId = newAuthUser.user.id
+    }
+
+    // Generate invite token
+    const inviteToken = crypto.randomUUID()
+    
     // Create the member record with pending status
     const { data: member, error: createError } = await supabaseClient
       .from('members')
@@ -172,6 +214,7 @@ serve(async (req) => {
           member_type: requestData.member_type,
           membership_status: MembershipStatus.PENDING,
           membership_start_date: new Date().toISOString(),
+          user_id: invitedUserId
         },
       ])
       .select()
@@ -190,9 +233,6 @@ serve(async (req) => {
       )
     }
 
-    // Generate invite token
-    const inviteToken = crypto.randomUUID()
-    
     // Store invite token
     const { error: inviteError } = await supabaseClient
       .from('invites')
@@ -219,16 +259,29 @@ serve(async (req) => {
       )
     }
 
-    // Send invite email using Supabase
+    // Send magic link email for new users or invite email for existing users
     const inviteUrl = `${Deno.env.get('FRONTEND_URL')}/join/${inviteToken}`
-    const { error: emailError } = await supabaseClient.auth.admin.inviteUserByEmail(requestData.email, {
-      redirectTo: inviteUrl,
-      data: {
-        club_name: club.name,
-        first_name: requestData.first_name,
-        invite_token: inviteToken
-      }
-    })
+    const { error: emailError } = !existingAuthUser 
+      ? await supabaseClient.auth.admin.generateLink({
+          type: 'magiclink',
+          email: requestData.email,
+          options: {
+            redirectTo: inviteUrl,
+            data: {
+              club_name: club.name,
+              first_name: requestData.first_name,
+              invite_token: inviteToken
+            }
+          }
+        })
+      : await supabaseClient.auth.admin.inviteUserByEmail(requestData.email, {
+          redirectTo: inviteUrl,
+          data: {
+            club_name: club.name,
+            first_name: requestData.first_name,
+            invite_token: inviteToken
+          }
+        })
 
     if (emailError) {
       console.error('Failed to send invite email:', emailError)
