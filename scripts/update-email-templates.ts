@@ -51,16 +51,23 @@ async function updateEmailTemplates() {
   }
 
   try {
-    const response = await fetch(`https://api.supabase.com/v1/projects/${projectId}/email-templates/invite`, {
-      method: 'PUT',
+    const response = await fetch(`https://api.supabase.com/v1/projects/${projectId}/config/auth`, {
+      method: 'PATCH',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        subject: 'Invitation to join {{ .data.club_name }}',
-        content: INVITE_TEMPLATE,
-        redirect_to: null
+        auth: {
+          email_templates: {
+            invite: {
+              subject: 'Invitation to join {{ .data.club_name }}',
+              content: {
+                html: INVITE_TEMPLATE
+              }
+            }
+          }
+        }
       })
     })
 
