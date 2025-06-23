@@ -53,9 +53,12 @@ jobs:
 
       - name: Update Email Templates
         if: github.event_name == 'push'
+        working-directory: scripts
         run: |
+          echo "Installing dependencies..."
+          npm install
           echo "Updating email templates..."
-          node --loader ts-node/esm scripts/update-email-templates.ts
+          npx tsx update-email-templates.ts
 
       - name: Deploy Supabase Edge Functions
         if: github.event_name == 'push'
