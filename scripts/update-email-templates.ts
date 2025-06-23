@@ -43,27 +43,30 @@ const INVITE_TEMPLATE = `
 `
 
 async function updateEmailTemplates() {
-  const supabaseUrl = process.env.SUPABASE_URL
-  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const projectId = process.env.SUPABASE_PROJECT_ID
+  const accessToken = process.env.SUPABASE_ACCESS_TOKEN
 
-  if (!supabaseUrl || !supabaseServiceRoleKey) {
+  if (!projectId || !accessToken) {
     throw new Error('Missing required environment variables')
   }
 
-  const supabase = createClient(supabaseUrl, supabaseServiceRoleKey)
-
   try {
-    const { error } = await supabase.auth.admin.updateEmailTemplate({
-      template: 'invite',
-      content: {
+    const response = await fetch(`https://api.supabase.com/v1/projects/${projectId}/email-templates/invite`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
         subject: 'Invitation to join {{ .data.club_name }}',
-        html_content: INVITE_TEMPLATE,
+        content: INVITE_TEMPLATE,
         redirect_to: null
-      }
+      })
     })
 
-    if (error) {
-      throw error
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(`Failed to update template: ${JSON.stringify(error)}`)
     }
 
     console.log('✅ Email templates updated successfully')
