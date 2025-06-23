@@ -18,6 +18,8 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ github.ref == 'refs/heads/main' && secrets.SUPABASE_ACCESS_TOKEN_MAIN || secrets.SUPABASE_ACCESS_TOKEN_STAGING }}
       SUPABASE_DB_PASSWORD: ${{ github.ref == 'refs/heads/main' && secrets.SUPABASE_DB_PASSWORD_MAIN || secrets.SUPABASE_DB_PASSWORD_STAGING }}
       SUPABASE_PROJECT_ID: ${{ github.ref == 'refs/heads/main' && secrets.SUPABASE_PROJECT_ID_MAIN || secrets.SUPABASE_PROJECT_ID_STAGING }}
+      SUPABASE_URL: ${{ github.ref == 'refs/heads/main' && secrets.SUPABASE_URL_MAIN || secrets.SUPABASE_URL_STAGING }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ github.ref == 'refs/heads/main' && secrets.SUPABASE_SERVICE_ROLE_KEY_MAIN || secrets.SUPABASE_SERVICE_ROLE_KEY_STAGING }}
       
     steps:
       - name: Checkout repository
@@ -29,6 +31,12 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: '18'
+
+      - name: Install dependencies
+        run: |
+          npm install @supabase/supabase-js
+          npm install --save-dev @types/node
+          npm install -g tsx
 
       - name: Install Supabase CLI
         uses: supabase/setup-cli@v1
@@ -56,6 +64,12 @@ jobs:
         run: |
           echo "Applying schema migrations..."
           supabase db push
+
+      - name: Update Email Templates
+        if: github.event_name == 'push'
+        run: |
+          echo "Updating email templates..."
+          tsx scripts/update-email-templates.ts
 
       # - name: Run Seed Script (only on staging)
       #   if: github.ref == 'refs/heads/staging'
