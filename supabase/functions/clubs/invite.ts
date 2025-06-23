@@ -219,24 +219,19 @@ serve(async (req) => {
       )
     }
 
-    // Send invite email
+    // Send invite email using Supabase
     const inviteUrl = `${Deno.env.get('FRONTEND_URL')}/join/${inviteToken}`
-    const { error: emailError } = await supabaseClient
-      .from('emails')
-      .insert([
-        {
-          to: requestData.email,
-          template: 'club-invite',
-          data: {
-            club_name: club.name,
-            first_name: requestData.first_name,
-            invite_url: inviteUrl
-          }
-        }
-      ])
+    const { error: emailError } = await supabaseClient.auth.admin.inviteUserByEmail(requestData.email, {
+      redirectTo: inviteUrl,
+      data: {
+        club_name: club.name,
+        first_name: requestData.first_name,
+        invite_token: inviteToken
+      }
+    })
 
     if (emailError) {
-      console.error('Failed to queue invite email:', emailError)
+      console.error('Failed to send invite email:', emailError)
       // Don't fail the request, just log the error
     }
 
