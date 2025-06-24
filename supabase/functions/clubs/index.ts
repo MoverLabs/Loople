@@ -12,6 +12,7 @@ import {
   buildErrorResponse,
   cleanupResources,
 } from '../_shared/utils.ts'
+import { corsHeaders } from '../_shared/cors.ts'
 
 // Club creation request type based on requirements
 interface CreateClubRequest {
@@ -35,13 +36,25 @@ serve(async (req) => {
   })
 
   // Handle CORS
-  const corsResponse = handleCors(req)
-  if (corsResponse) {
-    console.log('Handling CORS preflight request')
-    return corsResponse
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
   }
 
   try {
+    // Log the auth header for debugging
+    const authHeader = req.headers.get('Authorization')
+    console.log('Auth header present:', !!authHeader)
+    if (!authHeader) {
+      console.error('No Authorization header found')
+      return new Response(
+        JSON.stringify({ success: false, error: 'Authentication required' }),
+        {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
     console.log('Creating Supabase client...')
     const supabaseClient = createSupabaseClient(req)
     console.log('Supabase client created successfully')
@@ -314,9 +327,21 @@ serve(async (req) => {
     }
   } catch (error) {
     console.error('Error in clubs endpoint:', error)
-    return buildErrorResponse(
-      error,
-      error.message.includes('Authentication required') ? 401 : 400
+    const isAuthError = error.message.includes('Authentication required') ||
+                       error.message.includes('JWT expired') ||
+                       error.message.includes('invalid token') ||
+                       error.message.includes('Invalid JWT')
+    
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: error.message,
+        details: error.stack
+      }),
+      {
+        status: isAuthError ? 401 : 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      }
     )
   }
 }) 
