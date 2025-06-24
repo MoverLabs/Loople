@@ -33,12 +33,29 @@ export const validateRequiredFields = <T extends Record<string, any>>(
 
 // Create Supabase client with auth context
 export const createSupabaseClient = (req: Request) => {
+  const authHeader = req.headers.get('Authorization')
+  
+  if (!authHeader) {
+    throw new Error('Authorization header is required')
+  }
+
+  // Extract the token from the Authorization header
+  const token = authHeader.replace('Bearer ', '')
+  
+  if (!token) {
+    throw new Error('Bearer token is required')
+  }
+
   return createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
     Deno.env.get('SUPABASE_ANON_KEY') ?? '',
     {
       global: {
-        headers: { Authorization: req.headers.get('Authorization')! },
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
       },
     }
   )
@@ -46,11 +63,23 @@ export const createSupabaseClient = (req: Request) => {
 
 // Get authenticated user with error handling
 export const getAuthUser = async (supabaseClient: any) => {
-  const { data: { user }, error } = await supabaseClient.auth.getUser()
-  if (error || !user) {
+  try {
+    const { data: { user }, error } = await supabaseClient.auth.getUser()
+    
+    if (error) {
+      console.error('Auth error:', error)
+      throw new Error('Authentication failed')
+    }
+    
+    if (!user) {
+      throw new Error('User not found')
+    }
+    
+    return user
+  } catch (error) {
+    console.error('Error in getAuthUser:', error)
     throw new Error('Authentication required')
   }
-  return user
 }
 
 // Get user details from users table
@@ -62,6 +91,7 @@ export const getUserDetails = async (supabaseClient: any, userId: string) => {
     .single()
 
   if (userDataError) {
+    console.error('Error fetching user data:', userDataError)
     throw new Error('Error fetching user data')
   }
 
