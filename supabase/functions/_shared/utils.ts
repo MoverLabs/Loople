@@ -1,4 +1,4 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.4'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { corsHeaders } from './cors.ts'
 
 // Common response type
@@ -48,13 +48,14 @@ export const createSupabaseClient = (req: Request) => {
     authHeader: authHeader
   })
 
+  // Create client exactly as in join.ts
   return createClient(
     supabaseUrl,
     supabaseAnonKey,
     {
       global: {
-        headers: { Authorization: authHeader },
-      },
+        headers: { Authorization: authHeader! },
+      }
     }
   )
 }
@@ -63,10 +64,19 @@ export const createSupabaseClient = (req: Request) => {
 export const getAuthUser = async (supabaseClient: any) => {
   try {
     console.log('Getting auth user...')
-    const { data: { user }, error } = await supabaseClient.auth.getUser()
+    const {
+      data: { user },
+      error: userError,
+    } = await supabaseClient.auth.getUser()
     
-    if (error) {
-      console.error('Auth error:', error)
+    console.log('Auth User:', { 
+      userId: user?.id, 
+      userEmail: user?.email,
+      userError: userError?.message 
+    })
+
+    if (userError) {
+      console.error('Auth error:', userError)
       throw new Error('Authentication failed')
     }
     
