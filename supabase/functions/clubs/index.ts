@@ -196,77 +196,86 @@ serve(async (req) => {
 
         // Create the club with the authenticated user as owner
         console.log('Creating new club...')
-        const { data: club, error: createError } = await supabaseClient
-          .from('clubs')
-          .insert([
-            {
-              ...requestData,
-              owner_id: user.id,
-              onboarding_completed: false,
+        let clubId: string | undefined
+        try {
+          const { data: club, error: createError } = await supabaseClient
+            .from('clubs')
+            .insert([
+              {
+                ...requestData,
+                owner_id: user.id,
+                onboarding_completed: false,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              },
+            ])
+            .select()
+            .single()
+
+          if (createError) {
+            console.error('Error creating club:', createError)
+            throw createError
+          }
+
+          clubId = club.id
+          console.log('Club created successfully:', club)
+
+          // Create member record for the club owner
+          console.log('Creating member record for owner...')
+          const { error: memberError } = await supabaseClient
+            .from('members')
+            .insert({
+              club_id: club.id,
+              user_id: user.id,
+              first_name: userData.first_name,
+              last_name: userData.last_name,
+              email: userData.email,
+              phone: userData.phone,
+              member_type: MemberType.ADULT,
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
+            })
+
+          if (memberError) {
+            console.error('Error creating member record:', memberError)
+            throw memberError
+          }
+
+          // Update user role to admin
+          console.log('Updating user role to admin...')
+          const { error: userUpdateError } = await supabaseClient
+            .from('users')
+            .update({
+              role_id: ParticipantRole.ADMIN,
+              club_id: club.id,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', user.id)
+
+          if (userUpdateError) {
+            console.error('Error updating user role:', userUpdateError)
+            throw userUpdateError
+          }
+
+          console.log('Club creation completed successfully')
+          return buildResponse(
+            {
+              ...club,
+              is_owner: true
             },
-          ])
-          .select()
-          .single()
-
-        if (createError) {
-          console.error('Error creating club:', createError)
-          throw createError
+            201
+          )
+        } catch (error) {
+          console.error('Error during club creation process:', error)
+          // Cleanup any created resources
+          if (clubId) {
+            await cleanupResources(supabaseClient, {
+              clubId,
+              memberId: `${clubId}_${user.id}` // Composite key format
+            })
+          }
+          throw error
         }
-
-        console.log('Club created successfully:', club)
-
-        // Create member record for the club owner
-        console.log('Creating member record for owner...')
-        const { error: memberError } = await supabaseClient
-          .from('members')
-          .insert({
-            club_id: club.id,
-            user_id: user.id,
-            first_name: userData.first_name,
-            last_name: userData.last_name,
-            email: userData.email,
-            phone: userData.phone,
-            member_type: MemberType.ADULT,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-
-        if (memberError) {
-          console.error('Error creating member record:', memberError)
-          await cleanupResources(supabaseClient, { clubId: club.id })
-          throw new Error('Failed to create member record')
-        }
-
-        // Update user role to admin
-        console.log('Updating user role to admin...')
-        const { error: userUpdateError } = await supabaseClient
-          .from('users')
-          .update({
-            role_id: ParticipantRole.ADMIN,
-            club_id: club.id,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', user.id)
-
-        if (userUpdateError) {
-          console.error('Error updating user role:', userUpdateError)
-          await cleanupResources(supabaseClient, { 
-            clubId: club.id,
-            memberId: `${club.id}_${user.id}` // Composite key format
-          })
-          throw new Error('Failed to update user role')
-        }
-
-        console.log('Club creation completed successfully')
-        return buildResponse(
-          {
-            ...club,
-            is_owner: true
-          },
-          201
-        )
 
       case 'PUT':
         if (!path) {
@@ -274,52 +283,70 @@ serve(async (req) => {
         }
 
         console.log('Processing club update request for ID:', path)
+        let originalClubData: any
 
-        // Verify user is the owner of the club
-        const { data: clubToUpdate, error: clubError } = await supabaseClient
-          .from('clubs')
-          .select('owner_id')
-          .eq('id', path)
-          .single()
+        try {
+          // Verify user is the owner of the club and get original data
+          const { data: clubToUpdate, error: clubError } = await supabaseClient
+            .from('clubs')
+            .select('*')
+            .eq('id', path)
+            .single()
 
-        if (clubError || !clubToUpdate) {
-          console.error('Error fetching club to update:', clubError)
-          throw new Error('Club not found')
-        }
+          if (clubError || !clubToUpdate) {
+            console.error('Error fetching club to update:', clubError)
+            throw new Error('Club not found')
+          }
 
-        if (clubToUpdate.owner_id !== user.id) {
-          console.error('Unauthorized update attempt:', {
-            userId: user.id,
-            ownerId: clubToUpdate.owner_id
+          if (clubToUpdate.owner_id !== user.id) {
+            console.error('Unauthorized update attempt:', {
+              userId: user.id,
+              ownerId: clubToUpdate.owner_id
+            })
+            throw new Error('Only club owner can update club details')
+          }
+
+          originalClubData = clubToUpdate
+          const updateData = await req.json()
+          console.log('Update data:', updateData)
+
+          // Update club
+          console.log('Updating club...')
+          const { data: updatedClub, error: updateError } = await supabaseClient
+            .from('clubs')
+            .update({
+              ...updateData,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', path)
+            .select()
+            .single()
+
+          if (updateError) {
+            console.error('Error updating club:', updateError)
+            throw updateError
+          }
+
+          console.log('Club updated successfully:', updatedClub)
+          return buildResponse({
+            ...updatedClub,
+            is_owner: true
           })
-          throw new Error('Only club owner can update club details')
+        } catch (error) {
+          console.error('Error during club update:', error)
+          // If we have original data and the update failed, try to restore original state
+          if (originalClubData) {
+            try {
+              await supabaseClient
+                .from('clubs')
+                .update(originalClubData)
+                .eq('id', path)
+            } catch (restoreError) {
+              console.error('Failed to restore original club data:', restoreError)
+            }
+          }
+          throw error
         }
-
-        const updateData = await req.json()
-        console.log('Update data:', updateData)
-
-        // Update club
-        console.log('Updating club...')
-        const { data: updatedClub, error: updateError } = await supabaseClient
-          .from('clubs')
-          .update({
-            ...updateData,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', path)
-          .select()
-          .single()
-
-        if (updateError) {
-          console.error('Error updating club:', updateError)
-          throw updateError
-        }
-
-        console.log('Club updated successfully:', updatedClub)
-        return buildResponse({
-          ...updatedClub,
-          is_owner: true
-        })
 
       default:
         console.error('Invalid method:', method)
