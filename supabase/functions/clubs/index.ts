@@ -241,27 +241,10 @@ serve(async (req) => {
 
         // Update user role to admin
         console.log('Updating user role to admin...')
-        
-        // First get the admin role ID
-        const { data: adminRole, error: roleError } = await supabaseClient
-          .from('roles')
-          .select('id')
-          .eq('name', 'Admin')
-          .single()
-
-        if (roleError) {
-          console.error('Error fetching admin role:', roleError)
-          await cleanupResources(supabaseClient, { 
-            clubId: club.id,
-            memberId: `${club.id}_${user.id}` // Composite key format
-          })
-          throw new Error('Failed to fetch admin role')
-        }
-
         const { error: userUpdateError } = await supabaseClient
           .from('users')
           .update({
-            role_id: adminRole.id,
+            role_id: ParticipantRole.ADMIN,
             club_id: club.id,
             updated_at: new Date().toISOString(),
           })

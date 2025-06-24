@@ -32,9 +32,9 @@ export enum MessageContentType {
 }
 
 export enum ParticipantRole {
-  ADMIN = 'admin',
-  MEMBER = 'member',
-  READ_ONLY = 'read_only'
+  ADMIN = 1,
+  MEMBER = 2,
+  SWIMMER = 3
 }
 
 export enum PaymentStatus {
