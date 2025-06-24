@@ -39,17 +39,21 @@ export const createSupabaseClient = (req: Request) => {
     throw new Error('Authorization header is required')
   }
 
-  // Create client with the original Authorization header
+  const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
+  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
+  
+  console.log('Supabase Config:', { 
+    url: supabaseUrl,
+    hasAnonKey: !!supabaseAnonKey,
+    authHeader: authHeader
+  })
+
   return createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+    supabaseUrl,
+    supabaseAnonKey,
     {
       global: {
         headers: { Authorization: authHeader },
-      },
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
       },
     }
   )
