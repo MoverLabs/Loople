@@ -1,9 +1,19 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { corsHeaders } from '../_shared/cors.ts'
-import { Club, ApiResponse } from '../_shared/types.ts'
+import { MemberType, ParticipantRole } from '../_shared/types.ts'
+import {
+  createSupabaseClient,
+  getAuthUser,
+  getUserDetails,
+  validateEmail,
+  validatePhone,
+  validateRequiredFields,
+  handleCors,
+  buildResponse,
+  buildErrorResponse,
+  cleanupResources,
+} from '../_shared/utils.ts'
 
-// Request type for club creation
+// Club creation request type based on requirements
 interface CreateClubRequest {
   name: string
   subdomain: string
@@ -14,185 +24,237 @@ interface CreateClubRequest {
   city: string
   state: string
   zip_code: string
-  owner_id: string
 }
 
 serve(async (req) => {
   // Handle CORS
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
-  }
+  const corsResponse = handleCors(req)
+  if (corsResponse) return corsResponse
 
   try {
-    // Create Supabase client
-    const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      {
-        global: {
-          headers: { Authorization: req.headers.get('Authorization')! },
-        },
-      }
-    )
+    const supabaseClient = createSupabaseClient(req)
+    const user = await getAuthUser(supabaseClient)
+    const userData = await getUserDetails(supabaseClient, user.id)
 
-    // Get the user from the auth token
-    const {
-      data: { user },
-      error: userError,
-    } = await supabaseClient.auth.getUser()
+    // Get the request method and path
+    const { method, url } = req
+    const path = new URL(url).pathname.split('/').pop()
 
-    if (userError || !user) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Unauthorized' } as ApiResponse<null>),
-        {
-          status: 401,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    // Handle different HTTP methods
+    switch (method) {
+      case 'GET':
+        if (!path || path === 'clubs') {
+          // Get all clubs where user is a member
+          const { data: clubs, error } = await supabaseClient
+            .from('clubs')
+            .select(`
+              id, 
+              name, 
+              subdomain, 
+              description, 
+              contact_email,
+              owner_id,
+              members!inner (
+                user_id
+              )
+            `)
+            .eq('members.user_id', user.id)
+          
+          if (error) throw error
+          
+          return buildResponse(
+            clubs.map(club => ({
+              ...club,
+              is_owner: club.owner_id === user.id
+            }))
+          )
+        } else {
+          // Get specific club by subdomain
+          const { data: club, error } = await supabaseClient
+            .from('clubs')
+            .select(`
+              id, 
+              name, 
+              subdomain, 
+              description, 
+              contact_email,
+              owner_id,
+              members!inner (
+                user_id,
+                first_name,
+                last_name,
+                email,
+                member_type
+              )
+            `)
+            .eq('subdomain', path)
+            .eq('members.user_id', user.id)
+            .single()
+          
+          if (error) throw error
+          
+          return buildResponse({
+            ...club,
+            is_owner: club.owner_id === user.id
+          })
         }
-      )
-    }
 
-    // Get request body
-    const requestData: CreateClubRequest = await req.json()
+      case 'POST':
+        const requestData: CreateClubRequest = await req.json()
 
-    // Validate required fields
-    const requiredFields = [
-      'name',
-      'subdomain',
-      'description',
-      'contact_email',
-      'contact_phone',
-      'address',
-      'city',
-      'state',
-      'zip_code',
-      'owner_id',
-    ] as const
+        // Validate required fields
+        const requiredFields = [
+          'name',
+          'subdomain',
+          'description',
+          'contact_email',
+          'contact_phone',
+          'address',
+          'city',
+          'state',
+          'zip_code',
+        ] as const
 
-    for (const field of requiredFields) {
-      if (!requestData[field]) {
-        return new Response(
-          JSON.stringify({ 
-            success: false, 
-            error: `Missing required field: ${field}` 
-          } as ApiResponse<null>),
+        const fieldError = validateRequiredFields(requestData, requiredFields)
+        if (fieldError) {
+          throw new Error(fieldError)
+        }
+
+        // Validate email and phone
+        if (!validateEmail(requestData.contact_email)) {
+          throw new Error('Invalid email format')
+        }
+
+        if (!validatePhone(requestData.contact_phone)) {
+          throw new Error('Invalid phone format. Use format: (XXX) XXX-XXXX')
+        }
+
+        // Check if subdomain is already taken
+        const { data: existingClub, error: subdomainError } = await supabaseClient
+          .from('clubs')
+          .select('id')
+          .eq('subdomain', requestData.subdomain)
+          .single()
+
+        if (subdomainError && subdomainError.code !== 'PGRST116') {
+          throw new Error('Error checking subdomain availability')
+        }
+
+        if (existingClub) {
+          throw new Error('Subdomain already taken')
+        }
+
+        // Create the club with the authenticated user as owner
+        const { data: club, error: createError } = await supabaseClient
+          .from('clubs')
+          .insert([
+            {
+              ...requestData,
+              owner_id: user.id,
+              onboarding_completed: false,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          ])
+          .select()
+          .single()
+
+        if (createError) throw createError
+
+        // Create member record for the club owner
+        const { error: memberError } = await supabaseClient
+          .from('members')
+          .insert({
+            club_id: club.id,
+            user_id: user.id,
+            first_name: userData.first_name,
+            last_name: userData.last_name,
+            email: userData.email,
+            phone: userData.phone,
+            member_type: MemberType.ADULT,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+
+        if (memberError) {
+          await cleanupResources(supabaseClient, { clubId: club.id })
+          throw new Error('Failed to create member record')
+        }
+
+        // Update user role to admin
+        const { error: userUpdateError } = await supabaseClient
+          .from('users')
+          .update({
+            role_id: ParticipantRole.ADMIN,
+            club_id: club.id,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', user.id)
+
+        if (userUpdateError) {
+          await cleanupResources(supabaseClient, { 
+            clubId: club.id,
+            memberId: `${club.id}_${user.id}` // Composite key format
+          })
+          throw new Error('Failed to update user role')
+        }
+
+        return buildResponse(
           {
-            status: 400,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          }
+            ...club,
+            is_owner: true
+          },
+          201
         )
-      }
-    }
 
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(requestData.contact_email)) {
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: 'Invalid email format' 
-        } as ApiResponse<null>),
-        {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      case 'PUT':
+        if (!path) {
+          throw new Error('Club ID required')
         }
-      )
-    }
 
-    // Validate phone format (basic validation)
-    const phoneRegex = /^\(\d{3}\) \d{3}-\d{4}$/
-    if (!phoneRegex.test(requestData.contact_phone)) {
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: 'Invalid phone format. Use format: (XXX) XXX-XXXX' 
-        } as ApiResponse<null>),
-        {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        // Verify user is the owner of the club
+        const { data: clubToUpdate, error: clubError } = await supabaseClient
+          .from('clubs')
+          .select('owner_id')
+          .eq('id', path)
+          .single()
+
+        if (clubError || !clubToUpdate) {
+          throw new Error('Club not found')
         }
-      )
-    }
 
-    // Check if subdomain is already taken
-    const { data: existingClub, error: subdomainError } = await supabaseClient
-      .from('clubs')
-      .select('id')
-      .eq('subdomain', requestData.subdomain)
-      .single()
-
-    if (subdomainError && subdomainError.code !== 'PGRST116') {
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: 'Error checking subdomain availability' 
-        } as ApiResponse<null>),
-        {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        if (clubToUpdate.owner_id !== user.id) {
+          throw new Error('Only club owner can update club details')
         }
-      )
+
+        const updateData = await req.json()
+
+        // Update club
+        const { data: updatedClub, error: updateError } = await supabaseClient
+          .from('clubs')
+          .update({
+            ...updateData,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', path)
+          .select()
+          .single()
+
+        if (updateError) throw updateError
+
+        return buildResponse({
+          ...updatedClub,
+          is_owner: true
+        })
+
+      default:
+        throw new Error(`Method ${method} not allowed`)
     }
-
-    if (existingClub) {
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: 'Subdomain already taken' 
-        } as ApiResponse<null>),
-        {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      )
-    }
-
-    // Create the club
-    const { data: club, error: createError } = await supabaseClient
-      .from('clubs')
-      .insert([
-        {
-          ...requestData,
-          onboarding_completed: false,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-      ])
-      .select()
-      .single()
-
-    if (createError) {
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: 'Error creating club' 
-        } as ApiResponse<null>),
-        {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      )
-    }
-
-    return new Response(
-      JSON.stringify({ 
-        success: true, 
-        data: club 
-      } as ApiResponse<Club>),
-      {
-        status: 201,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
-    )
   } catch (error) {
-    return new Response(
-      JSON.stringify({ 
-        success: false, 
-        error: 'Internal server error' 
-      } as ApiResponse<null>),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
+    console.error(error)
+    return buildErrorResponse(
+      error,
+      error.message.includes('Authentication required') ? 401 : 400
     )
   }
 }) 
