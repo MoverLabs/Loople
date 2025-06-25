@@ -86,28 +86,20 @@ serve(async (req) => {
 
     // Check if club exists and if user has admin rights
     console.log('Checking club access for:', { clubId: requestData.club_id, userId: user.id })
+    
+    // First check if club exists and user is owner
     const { data: club, error: clubError } = await supabaseClient
       .from('clubs')
-      .select(`
-        id,
-        name,
-        members!inner (
-          id,
-          user_id,
-          membership_status
-        )
-      `)
+      .select('id, name, owner_id')
       .eq('id', requestData.club_id)
-      .eq('members.user_id', user.id)
-      .eq('members.membership_status', 'active')
       .single()
 
     if (clubError) {
-      console.error('Club access error:', clubError)
+      console.error('Club fetch error:', clubError)
       return new Response(
         JSON.stringify({
           success: false,
-          error: 'Club not found or you do not have access'
+          error: 'Club not found'
         } as ApiResponse<null>),
         {
           status: 404,
@@ -118,42 +110,34 @@ serve(async (req) => {
 
     console.log('Club data found:', club)
 
-    // Check if user has admin role by checking if they are the club owner
-    console.log('Checking club ownership for:', { clubId: requestData.club_id, userId: user.id })
-    const { data: clubOwner, error: ownerError } = await supabaseClient
-      .from('clubs')
-      .select('owner_id')
-      .eq('id', requestData.club_id)
-      .single()
+    // Check if user is owner or active member
+    if (club.owner_id !== user.id) {
+      const { data: membership, error: membershipError } = await supabaseClient
+        .from('members')
+        .select('id, membership_status')
+        .eq('club_id', club.id)
+        .eq('user_id', user.id)
+        .eq('membership_status', 'active')
+        .single()
 
-    if (ownerError) {
-      console.error('Club ownership check error:', ownerError)
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: 'Error checking club ownership'
-        } as ApiResponse<null>),
-        {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      )
+      console.log('Membership check:', { membership, membershipError })
+
+      if (membershipError || !membership) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: 'You do not have access to this club'
+          } as ApiResponse<null>),
+          {
+            status: 403,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        )
+      }
     }
 
-    console.log('Club owner data:', clubOwner)
-
-    if (clubOwner.owner_id !== user.id) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: 'Only club admins can send invites'
-        } as ApiResponse<null>),
-        {
-          status: 403,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      )
-    }
+    // If we get here, user has access
+    console.log('Access granted:', { isOwner: club.owner_id === user.id })
 
     // Check if email is already a member
     const { data: existingMember, error: memberError } = await supabaseClient

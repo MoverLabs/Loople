@@ -233,11 +233,6 @@ CREATE POLICY "Allow joins between clubs and members"
             AND c.owner_id::text = auth.uid()::text
         )
         OR
-        -- Allow if user is an active member of the club
-        EXISTS (
-            SELECT 1 FROM members m
-            WHERE m.club_id = members.club_id
-            AND m.user_id::text = auth.uid()::text
-            AND m.membership_status = 'active'
-        )
+        -- Allow if user is the member themselves
+        user_id::text = auth.uid()::text
     ); 
