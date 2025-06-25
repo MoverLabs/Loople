@@ -373,24 +373,28 @@ serve(async (req) => {
             })
           }
         } else {
-          console.log('Sending invite email to existing user')
-          // For existing users: Send invite that will confirm club membership
-          const { data, error } = await adminClient.auth.admin.inviteUserByEmail(requestData.email, {
-            redirectTo: inviteUrl,
-            data: {
-              club_name: club.name,
-              first_name: requestData.first_name,
-              invite_token: inviteToken,
-              club_id: club.id,
-              action: 'join_club'
+          console.log('Sending email change template to existing user')
+          // For existing users: Use email change template
+          const { data, error } = await adminClient.auth.admin.sendEmailChange({
+            email: requestData.email,
+            newEmail: requestData.email, // Same email since we just want to use the template
+            options: {
+              redirectTo: inviteUrl,
+              data: {
+                club_name: club.name,
+                first_name: requestData.first_name,
+                invite_token: inviteToken,
+                club_id: club.id,
+                action: 'join_club'
+              }
             }
           })
           emailError = error
           if (error) {
-            console.error('Invite email error:', error)
+            console.error('Email change template error:', error)
           } else {
-            console.log('Invite email sent successfully:', {
-              user: data?.user,
+            console.log('Email change template sent successfully:', {
+              emailSent: true,
               redirectTo: inviteUrl,
               inviteToken
             })
