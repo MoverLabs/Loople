@@ -344,6 +344,22 @@ serve(async (req) => {
 
       let emailError;
       try {
+        // First verify if email is configured
+        const { data: settings, error: settingsError } = await adminClient
+          .from('auth_config')
+          .select('*')
+          .single()
+        
+        if (settingsError) {
+          console.error('Failed to check email settings:', settingsError)
+          throw new Error('Failed to verify email configuration')
+        }
+
+        if (!settings?.enable_email_signup) {
+          console.error('Email signup is not enabled in Supabase')
+          throw new Error('Email functionality is not enabled')
+        }
+
         if (!existingAuthUser) {
           console.log('Sending magic link to new user')
           const { error } = await adminClient.auth.admin.generateLink({
@@ -403,7 +419,7 @@ serve(async (req) => {
         return new Response(
           JSON.stringify({
             success: false,
-            error: `Failed to send invite email: ${emailError.message || 'Unknown error'}`
+            error: `Failed to send invite email: ${emailError.message || 'Unknown error'}. Please ensure email is configured in Supabase dashboard.`
           } as ApiResponse<null>),
           {
             status: 500,
