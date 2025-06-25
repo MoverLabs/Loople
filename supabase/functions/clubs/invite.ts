@@ -111,7 +111,7 @@ serve(async (req) => {
 
     // Check if club exists and if user has admin rights
     console.log('Checking club access for:', { clubId: requestData.club_id, userId: user.id })
-    
+
     // First check if club exists and user is owner
     const { data: club, error: clubError } = await adminClient
       .from('clubs')
@@ -176,7 +176,7 @@ serve(async (req) => {
     // If user doesn't exist, create a new user with magic link
     if (!existingAuthUser) {
       console.log('Creating new user:', { email: requestData.email })
-      
+
       try {
         // Create new user in auth system without a password
         const { data: newAuthUser, error: createUserError } = await adminClient.auth.admin.createUser({
@@ -216,7 +216,7 @@ serve(async (req) => {
               email: requestData.email,
               first_name: requestData.first_name,
               last_name: requestData.last_name,
-              role: ParticipantRole.MEMBER
+              role_id: ParticipantRole.MEMBER
             }
           ])
 
@@ -260,7 +260,7 @@ serve(async (req) => {
     try {
       // Generate invite token
       const inviteToken = crypto.randomUUID()
-      
+
       // Create the member record with pending status
       const { data: member, error: createError } = await adminClient
         .from('members')
@@ -339,27 +339,27 @@ serve(async (req) => {
 
       // Send magic link email for new users or invite email for existing users
       const inviteUrl = `${Deno.env.get('FRONTEND_URL')}/join/${inviteToken}`
-      const { error: emailError } = !existingAuthUser 
+      const { error: emailError } = !existingAuthUser
         ? await adminClient.auth.admin.generateLink({
-            type: 'magiclink',
-            email: requestData.email,
-            options: {
-              redirectTo: inviteUrl,
-              data: {
-                club_name: club.name,
-                first_name: requestData.first_name,
-                invite_token: inviteToken
-              }
-            }
-          })
-        : await adminClient.auth.admin.inviteUserByEmail(requestData.email, {
+          type: 'magiclink',
+          email: requestData.email,
+          options: {
             redirectTo: inviteUrl,
             data: {
               club_name: club.name,
               first_name: requestData.first_name,
               invite_token: inviteToken
             }
-          })
+          }
+        })
+        : await adminClient.auth.admin.inviteUserByEmail(requestData.email, {
+          redirectTo: inviteUrl,
+          data: {
+            club_name: club.name,
+            first_name: requestData.first_name,
+            invite_token: inviteToken
+          }
+        })
 
       if (emailError) {
         console.error('Failed to send invite email:', emailError)
