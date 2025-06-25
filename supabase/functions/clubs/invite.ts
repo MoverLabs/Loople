@@ -184,23 +184,73 @@ serve(async (req) => {
 
     // If user doesn't exist, create a new user with magic link
     if (!existingAuthUser) {
-      // Create new user in auth system without a password
-      const { data: newAuthUser, error: createUserError } = await supabaseClient.auth.admin.createUser({
-        email: requestData.email,
-        email_confirm: false, // Set to false so they need to verify email
-        user_metadata: {
-          first_name: requestData.first_name,
-          last_name: requestData.last_name,
-          full_name: `${requestData.first_name} ${requestData.last_name}`,
-          role: ParticipantRole.MEMBER
-        }
-      })
+      console.log('Creating new user:', { email: requestData.email })
+      
+      try {
+        // Create new user in auth system without a password
+        const { data: newAuthUser, error: createUserError } = await supabaseClient.auth.admin.createUser({
+          email: requestData.email,
+          email_confirm: true, // Set to true since we'll send invite email
+          user_metadata: {
+            first_name: requestData.first_name,
+            last_name: requestData.last_name,
+            full_name: `${requestData.first_name} ${requestData.last_name}`,
+            role: ParticipantRole.MEMBER
+          },
+          password: crypto.randomUUID() // Temporary password that will be changed via magic link
+        })
 
-      if (createUserError) {
+        if (createUserError) {
+          console.error('Create user error:', createUserError)
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: `Failed to create user account: ${createUserError.message}`
+            } as ApiResponse<null>),
+            {
+              status: 500,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            }
+          )
+        }
+
+        console.log('New user created:', { userId: newAuthUser.user.id })
+        invitedUserId = newAuthUser.user.id
+
+        // Insert into users table
+        const { error: userInsertError } = await supabaseClient
+          .from('users')
+          .insert([
+            {
+              id: invitedUserId,
+              email: requestData.email,
+              first_name: requestData.first_name,
+              last_name: requestData.last_name,
+              role: ParticipantRole.MEMBER
+            }
+          ])
+
+        if (userInsertError) {
+          console.error('User insert error:', userInsertError)
+          // Delete the auth user if we couldn't create the user record
+          await supabaseClient.auth.admin.deleteUser(invitedUserId)
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: 'Failed to create user record'
+            } as ApiResponse<null>),
+            {
+              status: 500,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            }
+          )
+        }
+      } catch (error) {
+        console.error('Unexpected error during user creation:', error)
         return new Response(
           JSON.stringify({
             success: false,
-            error: 'Failed to create user account'
+            error: 'Unexpected error during user creation'
           } as ApiResponse<null>),
           {
             status: 500,
@@ -208,8 +258,6 @@ serve(async (req) => {
           }
         )
       }
-
-      invitedUserId = newAuthUser.user.id
     }
 
     // Generate invite token
