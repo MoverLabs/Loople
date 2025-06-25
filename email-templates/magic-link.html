@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <h2>Welcome to {{ .data.club_name }}!</h2>
+    
+    <p>Hello {{ .data.first_name }},</p>
+    
+    <p>You have been invited to join {{ .data.club_name }}. We are excited to have you as part of our community!</p>
+    
+    <p>To get started, click the button below to set up your account and accept the invitation:</p>
+    
+    <a href="{{ .ConfirmationURL }}" class="button">Set Up Account & Accept Invitation</a>
+    
+    <p>Please note:</p>
+    <ul>
+      <li>This link will expire in 24 hours</li>
+      <li>You'll be asked to create a password for your account</li>
+      <li>After setting up your account, you'll automatically be redirected to accept the club invitation</li>
+    </ul>
+    
+    <div class="footer">
+      <p>If you did not request this invitation, please ignore this email.</p>
+      <p>This is an automated message, please do not reply to this email.</p>
+    </div>
+  </div>
+</body>
+</html> 
