@@ -86,16 +86,15 @@ serve(async (req) => {
       .select(`
         id,
         name,
-        users!inner (
+        members!inner (
           id,
-          role_id,
-          roles!inner (
-            name
-          )
+          user_id,
+          membership_status
         )
       `)
       .eq('id', requestData.club_id)
-      .eq('users.id', user.id)
+      .eq('members.user_id', user.id)
+      .eq('members.membership_status', 'active')
       .single()
 
     if (clubError || !club) {
@@ -111,9 +110,27 @@ serve(async (req) => {
       )
     }
 
-    // Check if user has admin role
-    const userRole = club.users[0].roles.name
-    if (userRole !== 'admin') {
+    // Check if user has admin role by checking if they are the club owner
+    const { data: clubOwner, error: ownerError } = await supabaseClient
+      .from('clubs')
+      .select('owner_id')
+      .eq('id', requestData.club_id)
+      .single()
+
+    if (ownerError || !clubOwner) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Error checking club ownership'
+        } as ApiResponse<null>),
+        {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    if (clubOwner.owner_id !== user.id) {
       return new Response(
         JSON.stringify({
           success: false,
