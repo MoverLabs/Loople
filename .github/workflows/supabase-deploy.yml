@@ -51,17 +51,17 @@ jobs:
           echo "Applying schema migrations..."
           supabase db push
 
-      # - name: Update Email Templates
-      #   if: github.event_name == 'push'
-      #   working-directory: scripts
-      #   env:
-      #     SUPABASE_PROJECT_ID: ${{ env.SUPABASE_PROJECT_ID }}
-      #     SUPABASE_ACCESS_TOKEN: ${{ env.SUPABASE_ACCESS_TOKEN }}
-      #   run: |
-      #     echo "Installing dependencies..."
-      #     npm install
-      #     echo "Updating email templates..."
-      #     npx tsx update-email-templates.ts
+      - name: Update Email Templates
+        if: github.event_name == 'push'
+        working-directory: scripts
+        env:
+          SUPABASE_PROJECT_ID: ${{ env.SUPABASE_PROJECT_ID }}
+          SUPABASE_ACCESS_TOKEN: ${{ env.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          echo "Installing dependencies..."
+          npm install
+          echo "Updating email templates..."
+          npx tsx update-email-templates.ts
 
       - name: Deploy Supabase Edge Functions
         if: github.event_name == 'push'
