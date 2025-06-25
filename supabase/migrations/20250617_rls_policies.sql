@@ -220,4 +220,24 @@ CREATE POLICY "Events are manageable by club owners"
             WHERE c.id = events.club_id
             AND c.owner_id::text = auth.uid()::text
         )
+    );
+
+-- Add policies for table joins
+CREATE POLICY "Allow joins between clubs and members"
+    ON members FOR SELECT
+    USING (
+        -- Allow if user is club owner
+        EXISTS (
+            SELECT 1 FROM clubs c
+            WHERE c.id = members.club_id
+            AND c.owner_id::text = auth.uid()::text
+        )
+        OR
+        -- Allow if user is an active member of the club
+        EXISTS (
+            SELECT 1 FROM members m
+            WHERE m.club_id = members.club_id
+            AND m.user_id::text = auth.uid()::text
+            AND m.membership_status = 'active'
+        )
     ); 

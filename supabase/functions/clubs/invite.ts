@@ -36,6 +36,7 @@ serve(async (req) => {
     } = await supabaseClient.auth.getUser()
 
     if (userError || !user) {
+      console.error('Auth error:', userError)
       return new Response(
         JSON.stringify({ success: false, error: 'Unauthorized' } as ApiResponse<null>),
         {
@@ -45,8 +46,11 @@ serve(async (req) => {
       )
     }
 
+    console.log('Authenticated user:', { userId: user.id, email: user.email })
+
     // Get request body
     const requestData: InviteRequest = await req.json()
+    console.log('Invite request data:', requestData)
 
     // Validate required fields
     const requiredFields = ['club_id', 'email', 'first_name', 'last_name', 'member_type'] as const
@@ -81,6 +85,7 @@ serve(async (req) => {
     }
 
     // Check if club exists and if user has admin rights
+    console.log('Checking club access for:', { clubId: requestData.club_id, userId: user.id })
     const { data: club, error: clubError } = await supabaseClient
       .from('clubs')
       .select(`
@@ -97,7 +102,8 @@ serve(async (req) => {
       .eq('members.membership_status', 'active')
       .single()
 
-    if (clubError || !club) {
+    if (clubError) {
+      console.error('Club access error:', clubError)
       return new Response(
         JSON.stringify({
           success: false,
@@ -110,14 +116,18 @@ serve(async (req) => {
       )
     }
 
+    console.log('Club data found:', club)
+
     // Check if user has admin role by checking if they are the club owner
+    console.log('Checking club ownership for:', { clubId: requestData.club_id, userId: user.id })
     const { data: clubOwner, error: ownerError } = await supabaseClient
       .from('clubs')
       .select('owner_id')
       .eq('id', requestData.club_id)
       .single()
 
-    if (ownerError || !clubOwner) {
+    if (ownerError) {
+      console.error('Club ownership check error:', ownerError)
       return new Response(
         JSON.stringify({
           success: false,
@@ -129,6 +139,8 @@ serve(async (req) => {
         }
       )
     }
+
+    console.log('Club owner data:', clubOwner)
 
     if (clubOwner.owner_id !== user.id) {
       return new Response(
