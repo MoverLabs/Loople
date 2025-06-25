@@ -366,19 +366,24 @@ serve(async (req) => {
           }
         } else {
           console.log('Sending invite email to existing user')
-          const { error } = await adminClient.auth.admin.inviteUserByEmail(requestData.email, {
-            redirectTo: inviteUrl,
-            data: {
-              club_name: club.name,
-              first_name: requestData.first_name,
-              invite_token: inviteToken
+          // For existing users, send a password reset email which they can use to log in
+          const { error } = await adminClient.auth.admin.generateLink({
+            type: 'recovery',
+            email: requestData.email,
+            options: {
+              redirectTo: inviteUrl,
+              data: {
+                club_name: club.name,
+                first_name: requestData.first_name,
+                invite_token: inviteToken
+              }
             }
           })
           emailError = error
           if (error) {
-            console.error('Invite email error:', error)
+            console.error('Recovery link generation error:', error)
           } else {
-            console.log('Invite email sent successfully')
+            console.log('Recovery link generated successfully')
           }
         }
       } catch (error) {
