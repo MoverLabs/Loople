@@ -344,25 +344,10 @@ serve(async (req) => {
 
       let emailError;
       try {
-        // First verify if email is configured
-        const { data: settings, error: settingsError } = await adminClient
-          .from('auth_config')
-          .select('*')
-          .single()
-        
-        if (settingsError) {
-          console.error('Failed to check email settings:', settingsError)
-          throw new Error('Failed to verify email configuration')
-        }
-
-        if (!settings?.enable_email_signup) {
-          console.error('Email signup is not enabled in Supabase')
-          throw new Error('Email functionality is not enabled')
-        }
-
         if (!existingAuthUser) {
           console.log('Sending magic link to new user')
-          const { error } = await adminClient.auth.admin.generateLink({
+          // For new users: Send magic link that will create account and confirm invite
+          const { data, error } = await adminClient.auth.admin.generateLink({
             type: 'magiclink',
             email: requestData.email,
             options: {
@@ -370,7 +355,9 @@ serve(async (req) => {
               data: {
                 club_name: club.name,
                 first_name: requestData.first_name,
-                invite_token: inviteToken
+                invite_token: inviteToken,
+                club_id: club.id,
+                action: 'join_club'
               }
             }
           })
@@ -378,30 +365,47 @@ serve(async (req) => {
           if (error) {
             console.error('Magic link generation error:', error)
           } else {
-            console.log('Magic link generated successfully')
+            console.log('Magic link generated successfully:', { 
+              properties: data.properties,
+              emailSent: data.email_sent,
+              redirectTo: data.properties?.redirect_to,
+              inviteToken
+            })
           }
         } else {
           console.log('Sending invite email to existing user')
-          // For existing users, send a password reset email which they can use to log in
-          const { error } = await adminClient.auth.admin.generateLink({
-            type: 'recovery',
-            email: requestData.email,
-            options: {
-              redirectTo: inviteUrl,
-              data: {
-                club_name: club.name,
-                first_name: requestData.first_name,
-                invite_token: inviteToken
-              }
+          // For existing users: Send invite that will confirm club membership
+          const { data, error } = await adminClient.auth.admin.inviteUserByEmail(requestData.email, {
+            redirectTo: inviteUrl,
+            data: {
+              club_name: club.name,
+              first_name: requestData.first_name,
+              invite_token: inviteToken,
+              club_id: club.id,
+              action: 'join_club'
             }
           })
           emailError = error
           if (error) {
-            console.error('Recovery link generation error:', error)
+            console.error('Invite email error:', error)
           } else {
-            console.log('Recovery link generated successfully')
+            console.log('Invite email sent successfully:', {
+              user: data?.user,
+              redirectTo: inviteUrl,
+              inviteToken
+            })
           }
         }
+
+        // Log the invite details for verification
+        console.log('Invite details:', {
+          type: existingAuthUser ? 'existing_user' : 'new_user',
+          inviteToken,
+          clubId: club.id,
+          redirectUrl: inviteUrl,
+          email: requestData.email
+        })
+
       } catch (error) {
         console.error('Unexpected error during email sending:', error)
         emailError = error
@@ -419,7 +423,7 @@ serve(async (req) => {
         return new Response(
           JSON.stringify({
             success: false,
-            error: `Failed to send invite email: ${emailError.message || 'Unknown error'}. Please ensure email is configured in Supabase dashboard.`
+            error: `Failed to send invite email: ${emailError.message || 'Unknown error'}. Please check your email configuration in Supabase dashboard.`
           } as ApiResponse<null>),
           {
             status: 500,
