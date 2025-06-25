@@ -374,8 +374,9 @@ serve(async (req) => {
           }
         } else {
           console.log('Sending email change template to existing user')
-          // For existing users: Use email change template
-          const { data, error } = await adminClient.auth.admin.sendEmailChange({
+          // For existing users: Use email change template via generateLink
+          const { data, error } = await adminClient.auth.admin.generateLink({
+            type: 'emailChange',
             email: requestData.email,
             newEmail: requestData.email, // Same email since we just want to use the template
             options: {
@@ -394,8 +395,9 @@ serve(async (req) => {
             console.error('Email change template error:', error)
           } else {
             console.log('Email change template sent successfully:', {
-              emailSent: true,
-              redirectTo: inviteUrl,
+              properties: data.properties,
+              emailSent: data.email_sent,
+              redirectTo: data.properties?.redirect_to,
               inviteToken
             })
           }
