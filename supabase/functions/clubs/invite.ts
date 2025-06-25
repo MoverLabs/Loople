@@ -339,27 +339,52 @@ serve(async (req) => {
 
       // Send magic link email for new users or invite email for existing users
       const inviteUrl = `${Deno.env.get('FRONTEND_URL')}/join/${inviteToken}`
-      const { error: emailError } = !existingAuthUser
-        ? await adminClient.auth.admin.generateLink({
-          type: 'magiclink',
-          email: requestData.email,
-          options: {
+      console.log('Sending email with invite URL:', inviteUrl)
+      console.log('Email recipient:', { email: requestData.email, isNewUser: !existingAuthUser })
+
+      let emailError;
+      try {
+        if (!existingAuthUser) {
+          console.log('Sending magic link to new user')
+          const { error } = await adminClient.auth.admin.generateLink({
+            type: 'magiclink',
+            email: requestData.email,
+            options: {
+              redirectTo: inviteUrl,
+              data: {
+                club_name: club.name,
+                first_name: requestData.first_name,
+                invite_token: inviteToken
+              }
+            }
+          })
+          emailError = error
+          if (error) {
+            console.error('Magic link generation error:', error)
+          } else {
+            console.log('Magic link generated successfully')
+          }
+        } else {
+          console.log('Sending invite email to existing user')
+          const { error } = await adminClient.auth.admin.inviteUserByEmail(requestData.email, {
             redirectTo: inviteUrl,
             data: {
               club_name: club.name,
               first_name: requestData.first_name,
               invite_token: inviteToken
             }
+          })
+          emailError = error
+          if (error) {
+            console.error('Invite email error:', error)
+          } else {
+            console.log('Invite email sent successfully')
           }
-        })
-        : await adminClient.auth.admin.inviteUserByEmail(requestData.email, {
-          redirectTo: inviteUrl,
-          data: {
-            club_name: club.name,
-            first_name: requestData.first_name,
-            invite_token: inviteToken
-          }
-        })
+        }
+      } catch (error) {
+        console.error('Unexpected error during email sending:', error)
+        emailError = error
+      }
 
       if (emailError) {
         console.error('Failed to send invite email:', emailError)
@@ -373,7 +398,7 @@ serve(async (req) => {
         return new Response(
           JSON.stringify({
             success: false,
-            error: 'Failed to send invite email'
+            error: `Failed to send invite email: ${emailError.message || 'Unknown error'}`
           } as ApiResponse<null>),
           {
             status: 500,
@@ -381,6 +406,13 @@ serve(async (req) => {
           }
         )
       }
+
+      console.log('Invite process completed successfully:', {
+        memberId: createdMemberId,
+        inviteId: createdInviteId,
+        inviteToken,
+        recipientEmail: requestData.email
+      })
 
       return new Response(
         JSON.stringify({
