@@ -18,8 +18,21 @@ serve(async (req) => {
   }
 
   try {
-    // Create Supabase client with service role key for admin operations
-    const supabaseClient = createClient(
+    // Get the authorization header
+    const authHeader = req.headers.get('Authorization')
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'No authorization header' } as ApiResponse<null>),
+        {
+          status: 401,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      )
+    }
+
+    // Create two Supabase clients:
+    // 1. Admin client with service role for admin operations
+    const adminClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
       {
@@ -30,14 +43,22 @@ serve(async (req) => {
       }
     )
 
-    // Create admin auth client
-    const adminAuthClient = supabaseClient.auth.admin
+    // 2. User client with auth header for user context
+    const userClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      {
+        global: {
+          headers: { Authorization: authHeader }
+        }
+      }
+    )
 
-    // Get the user from the auth token
+    // Get the user from the auth token using user client
     const {
       data: { user },
       error: userError,
-    } = await supabaseClient.auth.getUser()
+    } = await userClient.auth.getUser()
 
     if (userError || !user) {
       console.error('Auth error:', userError)
@@ -92,7 +113,7 @@ serve(async (req) => {
     console.log('Checking club access for:', { clubId: requestData.club_id, userId: user.id })
     
     // First check if club exists and user is owner
-    const { data: club, error: clubError } = await supabaseClient
+    const { data: club, error: clubError } = await adminClient
       .from('clubs')
       .select('id, name, owner_id')
       .eq('id', requestData.club_id)
@@ -116,7 +137,7 @@ serve(async (req) => {
 
     // Check if user is owner or active member
     if (club.owner_id !== user.id) {
-      const { data: membership, error: membershipError } = await supabaseClient
+      const { data: membership, error: membershipError } = await adminClient
         .from('members')
         .select('id, membership_status')
         .eq('club_id', club.id)
@@ -143,42 +164,8 @@ serve(async (req) => {
     // If we get here, user has access
     console.log('Access granted:', { isOwner: club.owner_id === user.id })
 
-    // Check if email is already a member
-    const { data: existingMember, error: memberError } = await supabaseClient
-      .from('members')
-      .select('id, membership_status')
-      .eq('club_id', requestData.club_id)
-      .eq('email', requestData.email)
-      .single()
-
-    if (memberError && memberError.code !== 'PGRST116') {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: 'Error checking membership'
-        } as ApiResponse<null>),
-        {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      )
-    }
-
-    if (existingMember) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: `This email is already a ${existingMember.membership_status} member of this club`
-        } as ApiResponse<null>),
-        {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      )
-    }
-
     // Check if user exists in auth system
-    const { data: existingAuthUser, error: authUserError } = await supabaseClient
+    const { data: existingAuthUser, error: authUserError } = await adminClient
       .from('users')
       .select('id')
       .eq('email', requestData.email)
@@ -192,7 +179,7 @@ serve(async (req) => {
       
       try {
         // Create new user in auth system without a password
-        const { data: newAuthUser, error: createUserError } = await adminAuthClient.createUser({
+        const { data: newAuthUser, error: createUserError } = await adminClient.auth.admin.createUser({
           email: requestData.email,
           email_confirm: true,
           user_metadata: {
@@ -221,7 +208,7 @@ serve(async (req) => {
         invitedUserId = newAuthUser.user.id
 
         // Insert into users table
-        const { error: userInsertError } = await supabaseClient
+        const { error: userInsertError } = await adminClient
           .from('users')
           .insert([
             {
@@ -236,7 +223,7 @@ serve(async (req) => {
         if (userInsertError) {
           console.error('User insert error:', userInsertError)
           // Cleanup: Delete the auth user if we couldn't create the user record
-          await adminAuthClient.deleteUser(invitedUserId)
+          await adminClient.auth.admin.deleteUser(invitedUserId)
           return new Response(
             JSON.stringify({
               success: false,
@@ -252,7 +239,7 @@ serve(async (req) => {
         console.error('Unexpected error during user creation:', error)
         // Cleanup: Delete the auth user if it was created
         if (invitedUserId) {
-          await adminAuthClient.deleteUser(invitedUserId)
+          await adminClient.auth.admin.deleteUser(invitedUserId)
         }
         return new Response(
           JSON.stringify({
@@ -275,7 +262,7 @@ serve(async (req) => {
       const inviteToken = crypto.randomUUID()
       
       // Create the member record with pending status
-      const { data: member, error: createError } = await supabaseClient
+      const { data: member, error: createError } = await adminClient
         .from('members')
         .insert([
           {
@@ -296,8 +283,8 @@ serve(async (req) => {
         console.error('Member creation error:', createError)
         // Cleanup: Delete the auth user and user record if we created them
         if (!existingAuthUser && invitedUserId) {
-          await adminAuthClient.deleteUser(invitedUserId)
-          await supabaseClient.from('users').delete().eq('id', invitedUserId)
+          await adminClient.auth.admin.deleteUser(invitedUserId)
+          await adminClient.from('users').delete().eq('id', invitedUserId)
         }
         return new Response(
           JSON.stringify({
@@ -314,7 +301,7 @@ serve(async (req) => {
       createdMemberId = member.id
 
       // Store invite token
-      const { data: invite, error: inviteError } = await supabaseClient
+      const { data: invite, error: inviteError } = await adminClient
         .from('invites')
         .insert([
           {
@@ -331,10 +318,10 @@ serve(async (req) => {
       if (inviteError) {
         console.error('Invite creation error:', inviteError)
         // Cleanup: Delete the member record and auth user if we created them
-        await supabaseClient.from('members').delete().eq('id', createdMemberId)
+        await adminClient.from('members').delete().eq('id', createdMemberId)
         if (!existingAuthUser && invitedUserId) {
-          await adminAuthClient.deleteUser(invitedUserId)
-          await supabaseClient.from('users').delete().eq('id', invitedUserId)
+          await adminClient.auth.admin.deleteUser(invitedUserId)
+          await adminClient.from('users').delete().eq('id', invitedUserId)
         }
         return new Response(
           JSON.stringify({
@@ -353,7 +340,7 @@ serve(async (req) => {
       // Send magic link email for new users or invite email for existing users
       const inviteUrl = `${Deno.env.get('FRONTEND_URL')}/join/${inviteToken}`
       const { error: emailError } = !existingAuthUser 
-        ? await adminAuthClient.generateLink({
+        ? await adminClient.auth.admin.generateLink({
             type: 'magiclink',
             email: requestData.email,
             options: {
@@ -365,7 +352,7 @@ serve(async (req) => {
               }
             }
           })
-        : await adminAuthClient.inviteUserByEmail(requestData.email, {
+        : await adminClient.auth.admin.inviteUserByEmail(requestData.email, {
             redirectTo: inviteUrl,
             data: {
               club_name: club.name,
@@ -377,11 +364,11 @@ serve(async (req) => {
       if (emailError) {
         console.error('Failed to send invite email:', emailError)
         // Cleanup: Delete invite, member record, and auth user if we created them
-        await supabaseClient.from('invites').delete().eq('id', createdInviteId)
-        await supabaseClient.from('members').delete().eq('id', createdMemberId)
+        await adminClient.from('invites').delete().eq('id', createdInviteId)
+        await adminClient.from('members').delete().eq('id', createdMemberId)
         if (!existingAuthUser && invitedUserId) {
-          await adminAuthClient.deleteUser(invitedUserId)
-          await supabaseClient.from('users').delete().eq('id', invitedUserId)
+          await adminClient.auth.admin.deleteUser(invitedUserId)
+          await adminClient.from('users').delete().eq('id', invitedUserId)
         }
         return new Response(
           JSON.stringify({
@@ -409,14 +396,14 @@ serve(async (req) => {
       console.error('Unexpected error during invite process:', error)
       // Cleanup everything in reverse order
       if (createdInviteId) {
-        await supabaseClient.from('invites').delete().eq('id', createdInviteId)
+        await adminClient.from('invites').delete().eq('id', createdInviteId)
       }
       if (createdMemberId) {
-        await supabaseClient.from('members').delete().eq('id', createdMemberId)
+        await adminClient.from('members').delete().eq('id', createdMemberId)
       }
       if (!existingAuthUser && invitedUserId) {
-        await adminAuthClient.deleteUser(invitedUserId)
-        await supabaseClient.from('users').delete().eq('id', invitedUserId)
+        await adminClient.auth.admin.deleteUser(invitedUserId)
+        await adminClient.from('users').delete().eq('id', invitedUserId)
       }
       return new Response(
         JSON.stringify({
@@ -430,6 +417,7 @@ serve(async (req) => {
       )
     }
   } catch (error) {
+    console.error('Server error:', error)
     return new Response(
       JSON.stringify({
         success: false,
