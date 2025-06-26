@@ -7,9 +7,10 @@ export enum ConversationType {
 
 export enum EventType {
   PRACTICE = 'practice',
-  MEET = 'meet',
-  FUNDRAISER = 'fundraiser',
-  SOCIAL = 'social'
+  COMPETITION = 'competition',
+  MEETING = 'meeting',
+  SOCIAL = 'social',
+  OTHER = 'other'
 }
 
 export enum MemberType {

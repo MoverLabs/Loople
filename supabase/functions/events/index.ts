@@ -43,6 +43,12 @@ interface EventQueryParams {
   limit?: number
 }
 
+// Add this interface after the existing interfaces
+interface EventCleanupData {
+  eventId?: number
+  originalData?: Partial<EventRequest>
+}
+
 serve(async (req) => {
   console.log('=== Starting events endpoint request ===')
   console.log('Request details:', {
@@ -177,54 +183,74 @@ serve(async (req) => {
       case 'POST':
         const createData: EventRequest = await req.json()
         console.log('Create event request data:', createData)
+        let createdEventId: number | undefined
 
-        // Validate required fields
-        const requiredFields = [
-          'title',
-          'event_type',
-          'start_date',
-          'end_date',
-          'club_id'
-        ] as const
+        try {
+          // Validate required fields
+          const requiredFields = [
+            'title',
+            'event_type',
+            'start_date',
+            'end_date',
+            'club_id'
+          ] as const
 
-        const fieldError = validateRequiredFields(createData, requiredFields)
-        if (fieldError) {
-          throw new Error(fieldError)
+          const fieldError = validateRequiredFields(createData, requiredFields)
+          if (fieldError) {
+            throw new Error(fieldError)
+          }
+
+          // Verify user is club owner
+          const { data: club, error: ownerCheckError } = await supabaseClient
+            .from('clubs')
+            .select('owner_id')
+            .eq('id', createData.club_id)
+            .single()
+
+          if (ownerCheckError || !club) {
+            throw new Error('Club not found')
+          }
+
+          if (club.owner_id !== user.id) {
+            return buildErrorResponse('Only club owner can create events', 403)
+          }
+
+          // Create event
+          const { data: newEvent, error: createError } = await supabaseClient
+            .from('events')
+            .insert({
+              ...createData,
+              is_active: true,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+            .select()
+            .single()
+
+          if (createError) {
+            console.error('Error creating event:', createError)
+            throw createError
+          }
+
+          createdEventId = newEvent.id
+          console.log('Event created successfully:', newEvent)
+
+          return buildResponse(newEvent, 201)
+        } catch (error) {
+          console.error('Error during event creation:', error)
+          
+          // Cleanup if event was partially created
+          if (createdEventId) {
+            console.log('Cleaning up partially created event:', createdEventId)
+            try {
+              await cleanupResources(supabaseClient, { eventId: createdEventId })
+            } catch (cleanupError) {
+              console.error('Error during cleanup:', cleanupError)
+            }
+          }
+          
+          throw error
         }
-
-        // Verify user is club owner
-        const { data: club, error: ownerCheckError } = await supabaseClient
-          .from('clubs')
-          .select('owner_id')
-          .eq('id', createData.club_id)
-          .single()
-
-        if (ownerCheckError || !club) {
-          throw new Error('Club not found')
-        }
-
-        if (club.owner_id !== user.id) {
-          return buildErrorResponse('Only club owner can create events', 403)
-        }
-
-        // Create event
-        const { data: newEvent, error: createError } = await supabaseClient
-          .from('events')
-          .insert({
-            ...createData,
-            is_active: true,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          })
-          .select()
-          .single()
-
-        if (createError) {
-          console.error('Error creating event:', createError)
-          throw createError
-        }
-
-        return buildResponse(newEvent, 201)
 
       case 'PUT':
         if (!path) {
@@ -233,72 +259,133 @@ serve(async (req) => {
 
         const updateData: Partial<EventRequest> = await req.json()
         console.log('Update event request data:', updateData)
+        let originalEventData: any
 
-        // Verify event exists and user is club owner
-        const { data: eventToUpdate, error: eventError } = await supabaseClient
-          .from('events')
-          .select('*, clubs!inner(owner_id)')
-          .eq('id', path)
-          .single()
+        try {
+          // Verify event exists and user is club owner
+          const { data: eventToUpdate, error: eventError } = await supabaseClient
+            .from('events')
+            .select('*, clubs!inner(owner_id)')
+            .eq('id', path)
+            .single()
 
-        if (eventError || !eventToUpdate) {
-          throw new Error('Event not found')
+          if (eventError || !eventToUpdate) {
+            throw new Error('Event not found')
+          }
+
+          if (eventToUpdate.clubs.owner_id !== user.id) {
+            return buildErrorResponse('Only club owner can update events', 403)
+          }
+
+          // Store original data for rollback if needed
+          originalEventData = { ...eventToUpdate }
+
+          // Update event
+          const { data: updatedEvent, error: updateError } = await supabaseClient
+            .from('events')
+            .update({
+              ...updateData,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', path)
+            .select()
+            .single()
+
+          if (updateError) {
+            console.error('Error updating event:', updateError)
+            throw updateError
+          }
+
+          return buildResponse(updatedEvent)
+        } catch (error) {
+          console.error('Error during event update:', error)
+
+          // Attempt to rollback changes if we have original data
+          if (originalEventData) {
+            console.log('Rolling back event update:', path)
+            try {
+              const { error: rollbackError } = await supabaseClient
+                .from('events')
+                .update({
+                  ...originalEventData,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', path)
+
+              if (rollbackError) {
+                console.error('Error during rollback:', rollbackError)
+              }
+            } catch (rollbackError) {
+              console.error('Error during rollback:', rollbackError)
+            }
+          }
+
+          throw error
         }
-
-        if (eventToUpdate.clubs.owner_id !== user.id) {
-          return buildErrorResponse('Only club owner can update events', 403)
-        }
-
-        // Update event
-        const { data: updatedEvent, error: updateError } = await supabaseClient
-          .from('events')
-          .update({
-            ...updateData,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', path)
-          .select()
-          .single()
-
-        if (updateError) {
-          console.error('Error updating event:', updateError)
-          throw updateError
-        }
-
-        return buildResponse(updatedEvent)
 
       case 'DELETE':
         if (!path) {
           throw new Error('Event ID required')
         }
 
-        // Verify event exists and user is club owner
-        const { data: eventToDelete, error: deleteCheckError } = await supabaseClient
-          .from('events')
-          .select('*, clubs!inner(owner_id)')
-          .eq('id', path)
-          .single()
+        let deletedEventData: any
 
-        if (deleteCheckError || !eventToDelete) {
-          throw new Error('Event not found')
+        try {
+          // Verify event exists and user is club owner
+          const { data: eventToDelete, error: deleteCheckError } = await supabaseClient
+            .from('events')
+            .select('*, clubs!inner(owner_id)')
+            .eq('id', path)
+            .single()
+
+          if (deleteCheckError || !eventToDelete) {
+            throw new Error('Event not found')
+          }
+
+          if (eventToDelete.clubs.owner_id !== user.id) {
+            return buildErrorResponse('Only club owner can delete events', 403)
+          }
+
+          // Store event data for potential recovery
+          deletedEventData = { ...eventToDelete }
+
+          // Delete event
+          const { error: deleteError } = await supabaseClient
+            .from('events')
+            .delete()
+            .eq('id', path)
+
+          if (deleteError) {
+            console.error('Error deleting event:', deleteError)
+            throw deleteError
+          }
+
+          return buildResponse({ message: 'Event deleted successfully' })
+        } catch (error) {
+          console.error('Error during event deletion:', error)
+
+          // Attempt to recover deleted event if we have the data
+          if (deletedEventData) {
+            console.log('Attempting to recover deleted event:', path)
+            try {
+              const { error: recoveryError } = await supabaseClient
+                .from('events')
+                .insert({
+                  ...deletedEventData,
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString()
+                })
+
+              if (recoveryError) {
+                console.error('Error during event recovery:', recoveryError)
+              }
+            } catch (recoveryError) {
+              console.error('Error during event recovery:', recoveryError)
+            }
+          }
+
+          throw error
         }
-
-        if (eventToDelete.clubs.owner_id !== user.id) {
-          return buildErrorResponse('Only club owner can delete events', 403)
-        }
-
-        // Delete event
-        const { error: deleteError } = await supabaseClient
-          .from('events')
-          .delete()
-          .eq('id', path)
-
-        if (deleteError) {
-          console.error('Error deleting event:', deleteError)
-          throw deleteError
-        }
-
-        return buildResponse({ message: 'Event deleted successfully' })
 
       default:
         return buildErrorResponse(`Method ${method} not allowed`, 405)

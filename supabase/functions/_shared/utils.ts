@@ -143,42 +143,69 @@ export const handleCors = (req: Request): Response | null => {
   return null
 }
 
-// Cleanup resources in case of error
-export const cleanupResources = async (
+interface CleanupData {
+  clubId?: string
+  userId?: string
+  memberId?: string
+  eventId?: number
+}
+
+export async function cleanupResources(
   supabaseClient: any,
-  {
-    clubId,
-    userId,
-    memberId,
-  }: {
-    clubId?: string
-    userId?: string
-    memberId?: string
-  }
-) => {
+  data: CleanupData
+): Promise<void> {
+  const { clubId, userId, memberId, eventId } = data
+
   try {
+    // Clean up event if eventId is provided
+    if (eventId) {
+      const { error: eventError } = await supabaseClient
+        .from('events')
+        .delete()
+        .eq('id', eventId)
+
+      if (eventError) {
+        console.error('Error cleaning up event:', eventError)
+      }
+    }
+
+    // Clean up member if memberId is provided
     if (memberId) {
-      await supabaseClient
+      const { error: memberError } = await supabaseClient
         .from('members')
         .delete()
         .eq('id', memberId)
+
+      if (memberError) {
+        console.error('Error cleaning up member:', memberError)
+      }
     }
 
-    if (clubId) {
-      await supabaseClient
-        .from('clubs')
-        .delete()
-        .eq('id', clubId)
-    }
-
-    // Only cleanup user data if specifically requested
+    // Clean up user if userId is provided
     if (userId) {
-      await supabaseClient
+      const { error: userError } = await supabaseClient
         .from('users')
         .delete()
         .eq('id', userId)
+
+      if (userError) {
+        console.error('Error cleaning up user:', userError)
+      }
+    }
+
+    // Clean up club if clubId is provided
+    if (clubId) {
+      const { error: clubError } = await supabaseClient
+        .from('clubs')
+        .delete()
+        .eq('id', clubId)
+
+      if (clubError) {
+        console.error('Error cleaning up club:', clubError)
+      }
     }
   } catch (error) {
     console.error('Error during cleanup:', error)
+    throw error
   }
 } 
