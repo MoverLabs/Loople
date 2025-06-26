@@ -254,42 +254,28 @@ serve(async (req) => {
       }
     }
 
-    let createdMemberId: number | null = null
-    let createdInviteId: number | null = null
+    let member: Member;
+    let createdMemberId: number | null = null;
+    let createdInviteId: number | null = null;
 
     try {
       // Generate invite token
       const inviteToken = crypto.randomUUID()
 
-      // Create the member record with pending status
-      const { data: member, error: createError } = await adminClient
+      // Check if member already exists for this club and user
+      const { data: existingMember, error: existingMemberError } = await adminClient
         .from('members')
-        .insert([
-          {
-            club_id: requestData.club_id,
-            first_name: requestData.first_name,
-            last_name: requestData.last_name,
-            email: requestData.email,
-            member_type: requestData.member_type,
-            membership_status: MembershipStatus.PENDING,
-            membership_start_date: new Date().toISOString(),
-            user_id: invitedUserId
-          },
-        ])
-        .select()
+        .select('id, membership_status')
+        .eq('club_id', requestData.club_id)
+        .eq('user_id', invitedUserId)
         .single()
 
-      if (createError) {
-        console.error('Member creation error:', createError)
-        // Cleanup: Delete the auth user and user record if we created them
-        if (!existingAuthUser && invitedUserId) {
-          await adminClient.auth.admin.deleteUser(invitedUserId)
-          await adminClient.from('users').delete().eq('id', invitedUserId)
-        }
+      if (existingMemberError && existingMemberError.code !== 'PGRST116') { // PGRST116 means no rows returned
+        console.error('Error checking existing member:', existingMemberError)
         return new Response(
           JSON.stringify({
             success: false,
-            error: 'Error creating membership'
+            error: 'Error checking existing membership'
           } as ApiResponse<null>),
           {
             status: 500,
@@ -298,7 +284,51 @@ serve(async (req) => {
         )
       }
 
-      createdMemberId = member.id
+      if (existingMember) {
+        console.log('Member already exists, using existing record:', existingMember)
+        member = existingMember;
+        createdMemberId = existingMember.id;
+      } else {
+        // Create the member record with pending status
+        const { data: newMember, error: createError } = await adminClient
+          .from('members')
+          .insert([
+            {
+              club_id: requestData.club_id,
+              first_name: requestData.first_name,
+              last_name: requestData.last_name,
+              email: requestData.email,
+              member_type: requestData.member_type,
+              membership_status: MembershipStatus.PENDING,
+              membership_start_date: new Date().toISOString(),
+              user_id: invitedUserId
+            },
+          ])
+          .select()
+          .single()
+
+        if (createError) {
+          console.error('Member creation error:', createError)
+          // Cleanup: Delete the auth user and user record if we created them
+          if (!existingAuthUser && invitedUserId) {
+            await adminClient.auth.admin.deleteUser(invitedUserId)
+            await adminClient.from('users').delete().eq('id', invitedUserId)
+          }
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: 'Error creating membership'
+            } as ApiResponse<null>),
+            {
+              status: 500,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            }
+          )
+        }
+
+        member = newMember;
+        createdMemberId = newMember.id;
+      }
 
       // Store invite token
       const { data: invite, error: inviteError } = await adminClient
@@ -317,11 +347,13 @@ serve(async (req) => {
 
       if (inviteError) {
         console.error('Invite creation error:', inviteError)
-        // Cleanup: Delete the member record and auth user if we created them
-        await adminClient.from('members').delete().eq('id', createdMemberId)
-        if (!existingAuthUser && invitedUserId) {
-          await adminClient.auth.admin.deleteUser(invitedUserId)
-          await adminClient.from('users').delete().eq('id', invitedUserId)
+        // Only cleanup the member if we created it in this request
+        if (!existingMember && createdMemberId) {
+          await adminClient.from('members').delete().eq('id', createdMemberId)
+          if (!existingAuthUser && invitedUserId) {
+            await adminClient.auth.admin.deleteUser(invitedUserId)
+            await adminClient.from('users').delete().eq('id', invitedUserId)
+          }
         }
         return new Response(
           JSON.stringify({
@@ -335,7 +367,7 @@ serve(async (req) => {
         )
       }
 
-      createdInviteId = invite.id
+      createdInviteId = invite.id;
 
       // Send magic link email for new users or invite email for existing users
       const inviteUrl = `${Deno.env.get('FRONTEND_URL')}/join/${inviteToken}`
