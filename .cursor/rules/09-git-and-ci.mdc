@@ -1,0 +1,7 @@
+---
+title: Git and CI Rules
+---
+
+- Conventional Commits (feat, fix, chore, refactor, docs, test, perf, build, ci).
+- Small PRs (<300 LOC preferred) with context + verification steps.
+- CI must run: typecheck, lint, unit, and (if present) relevant e2e on affected apps/packages.

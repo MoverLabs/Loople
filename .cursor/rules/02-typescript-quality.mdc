@@ -1,0 +1,12 @@
+## TS config expectations
+- "strict": true, "noUncheckedIndexedAccess": true, "exactOptionalPropertyTypes": true.
+
+## Patterns
+- Prefer **named exports** for components/utilities.
+- No `// @ts-ignore` unless justified with a short TODO.
+
+## Validation
+- Validate **API boundaries** with Zod; export types from schemas.
+
+## Validation
+- Validate **API boundaries** with Zod; export types from schemas.

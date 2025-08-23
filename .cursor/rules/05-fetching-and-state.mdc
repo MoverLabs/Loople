@@ -1,0 +1,7 @@
+---
+title: Fetching and State
+---
+
+- Server-first data fetching with App Router; leverage Next.js caching where possible.
+- Client state libs (SWR/React Query) only for realtime/optimistic UX; otherwise render on server.
+- Derive client state from server truth; avoid duplicating caches.

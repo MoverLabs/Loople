@@ -1,0 +1,8 @@
+---
+title: Performance
+---
+
+- Prefer Server Components to minimize client JS.
+- Use `next/image`; set `sizes`; only `priority` above the fold.
+- Memoize pure components; stabilize callbacks; avoid prop bloat.
+- Code‑split heavy client modules with dynamic import.

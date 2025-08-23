@@ -1,0 +1,18 @@
+---
+title: Data and Security
+---
+
+## Env
+- Read secrets via `lib/env.ts`. Never expose service keys client‑side.
+
+## Supabase
+- RLS must be enabled on tables accessed from clients.
+- Policies should index columns used in predicates (e.g., `auth.uid() = user_id` needs an index on `user_id`).
+- Prefer server‑side service role usage only in trusted contexts (route handlers / server actions).
+
+## Stripe
+- Verify webhook signatures with official SDK using the raw request body.
+- Treat all webhook payloads as untrusted; re‑fetch critical objects from Stripe before mutating state.
+
+- **Verify webhook signatures with official SDK** using the **raw request body**.
+- Treat all webhook payloads as untrusted; re‑fetch critical objects from Stripe before mutating state.

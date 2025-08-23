@@ -1,0 +1,11 @@
+## Structure (App Router)
+- `/app/(marketing)` public pages
+- `/app/(app)` authenticated area
+- `/app/api` Route Handlers only
+- `/features/<domain>/{ui,server,hooks,lib}`
+- `/lib` cross‑cutting utils (env, fetchers, schemas)
+- Default to **Server Components**; add "use client" only when needed.
+
+## Rules
+- No server secrets in client modules; use server actions or route handlers.
+- Keep domain UI under `/features/<domain>/ui`; avoid dumping into `/components`.

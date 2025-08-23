@@ -1,0 +1,7 @@
+---
+title: Testing
+---
+
+- Unit: Vitest (+ @testing-library for components).
+- E2E: Playwright for critical flows.
+- Every new user‑facing flow needs at least a smoke test and a short “Verify” snippet in PR description.

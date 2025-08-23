@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "components",
+    "lib",
+    "types",
+    "next-env.d.ts"
+  ]
+} 

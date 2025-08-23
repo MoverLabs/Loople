@@ -1,0 +1,4 @@
+
+- Styling: **Tailwind + shadcn/ui** only (no inline styles unless essential).
+- Motion: **Framer Motion** for routing/layout transitions; **GSAP** only for complex sequences and keep isolated.
+- Accessibility: semantic HTML, focus states, aria-* where appropriate.

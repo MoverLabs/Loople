@@ -1,0 +1,3 @@
+- Use Nx affected commands; enable local/remote cache.
+- Configure inputs/outputs so tests rebuild only when production files change.
+- Keep tasks minimal & composable; prefer inferred tasks (Project Crystal) when available.

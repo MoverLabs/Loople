@@ -1,0 +1,13 @@
+## How to change code in this repo
+- Make the **smallest complete** change that solves the issue.
+- **List exact files** you intend to modify before editing.
+- When you output a file, **output the entire file** (no ellipses).
+- If a change would touch >5 files or cross domains, propose a short plan first.
+
+## Rule behavior
+- Prefer **scoped rules** and **Auto Attached** rules elsewhere in this folder.
+- Keep content **actionable, <500 lines, and example‑driven**.
+
+## After every change, include “Verify” steps
+- Example:
+  `Verify: pnpm test -w` then visit `/register` and submit a sample form; expect 200 + row in DB.
