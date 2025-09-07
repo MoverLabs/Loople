@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   Club,
   User,
@@ -47,6 +48,7 @@ serve(async (req) => {
   let createdUserId: string | undefined;
   let createdClubId: string | undefined;
   let supabaseClient: any;
+  let serviceRoleClient: any;
 
   try {
     console.log("Starting signup process...");
@@ -73,6 +75,18 @@ serve(async (req) => {
 
     // Initialize Supabase client
     supabaseClient = createSupabaseClient(req);
+    
+    // Create service role client for admin operations
+    serviceRoleClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
+    );
 
     // Check if user already exists
     console.log("Checking for existing user...");
@@ -135,9 +149,9 @@ serve(async (req) => {
         throw new Error("Club subdomain already taken");
       }
 
-      // Create new club
+      // Create new club using service role client
       console.log("Creating new club...");
-      const { data: newClub, error: clubError } = await supabaseClient
+      const { data: newClub, error: clubError } = await serviceRoleClient
         .from("clubs")
         .insert({
           name: requestData.data.club_name,
@@ -160,9 +174,9 @@ serve(async (req) => {
       clubData = newClub;
     }
 
-    // Create user record in the public.users table
+    // Create user record in the public.users table using service role client
     console.log("Creating user record...");
-    const { error: dbUserError } = await supabaseClient.from("users").insert({
+    const { error: dbUserError } = await serviceRoleClient.from("users").insert({
       id: authData.user?.id,
       email: requestData.email,
       first_name: requestData.data.first_name,
@@ -185,7 +199,7 @@ serve(async (req) => {
     // Add user as member if club was created
     if (clubData) {
       console.log("Creating member record...");
-      const { error: memberError } = await supabaseClient.from("members").insert({
+      const { error: memberError } = await serviceRoleClient.from("members").insert({
         club_id: clubData.id,
         user_id: authData.user?.id,
         first_name: requestData.data.first_name,

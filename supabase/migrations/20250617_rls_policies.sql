@@ -84,9 +84,12 @@ CREATE POLICY "Clubs are viewable by anyone"
     ON clubs FOR SELECT
     USING (true);
 
-CREATE POLICY "Clubs can be created by authenticated users"
+CREATE POLICY "Clubs can be created by authenticated users and service role"
     ON clubs FOR INSERT
-    WITH CHECK (auth.uid() IS NOT NULL);
+    WITH CHECK (
+        auth.uid() IS NOT NULL 
+        OR auth.jwt() ->> 'role' = 'service_role'
+    );
 
 CREATE POLICY "Clubs are manageable by owners"
     ON clubs FOR UPDATE
