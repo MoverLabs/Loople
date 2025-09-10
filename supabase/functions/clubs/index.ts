@@ -77,7 +77,7 @@ serve(async (req) => {
       case 'GET':
         if (!path || path === 'clubs') {
           console.log('Fetching all clubs for user:', user.id)
-          // Get all clubs where user is a member
+          // Get all clubs where user is a member (check both user_id and email)
           const { data: clubs, error } = await supabaseClient
             .from('clubs')
             .select(`
@@ -88,10 +88,11 @@ serve(async (req) => {
               contact_email,
               owner_id,
               members!inner (
-                user_id
+                user_id,
+                email
               )
             `)
-            .eq('members.user_id', user.id)
+            .or(`members.user_id.eq.${user.id},members.email.eq.${user.email}`)
           
           if (error) {
             console.error('Error fetching clubs:', error)
@@ -107,7 +108,7 @@ serve(async (req) => {
           )
         } else {
           console.log('Fetching specific club by subdomain:', path)
-          // Get specific club by subdomain
+          // Get specific club by subdomain (check both user_id and email)
           const { data: club, error } = await supabaseClient
             .from('clubs')
             .select(`
@@ -126,7 +127,7 @@ serve(async (req) => {
               )
             `)
             .eq('subdomain', path)
-            .eq('members.user_id', user.id)
+            .or(`members.user_id.eq.${user.id},members.email.eq.${user.email}`)
             .single()
           
           if (error) {
