@@ -6,6 +6,9 @@ ALTER TABLE users DISABLE ROW LEVEL SECURITY;
 ALTER TABLE events DISABLE ROW LEVEL SECURITY;
 ALTER TABLE roles DISABLE ROW LEVEL SECURITY;
 ALTER TABLE clubs DISABLE ROW LEVEL SECURITY;
+ALTER TABLE posts DISABLE ROW LEVEL SECURITY;
+ALTER TABLE comments DISABLE ROW LEVEL SECURITY;
+ALTER TABLE reactions DISABLE ROW LEVEL SECURITY;
 
 -- Remove all existing policies
 DO $$ 
@@ -49,6 +52,9 @@ ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE clubs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE comments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reactions ENABLE ROW LEVEL SECURITY;
 
 -- Service role bypass for all tables
 CREATE POLICY "Service role bypass"
@@ -77,6 +83,18 @@ CREATE POLICY "Service role bypass"
 
 CREATE POLICY "Service role bypass"
     ON clubs FOR ALL
+    USING (auth.jwt() ->> 'role' = 'service_role');
+
+CREATE POLICY "Service role bypass"
+    ON posts FOR ALL
+    USING (auth.jwt() ->> 'role' = 'service_role');
+
+CREATE POLICY "Service role bypass"
+    ON comments FOR ALL
+    USING (auth.jwt() ->> 'role' = 'service_role');
+
+CREATE POLICY "Service role bypass"
+    ON reactions FOR ALL
     USING (auth.jwt() ->> 'role' = 'service_role');
 
 -- Basic policies for clubs
@@ -248,4 +266,109 @@ CREATE POLICY "Allow joins between clubs and members"
         OR
         -- Allow if user is the member themselves
         user_id::text = auth.uid()::text
-    ); 
+    );
+
+-- Posts policies
+CREATE POLICY "Posts are viewable by club members"
+    ON posts FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM members m
+            WHERE m.club_id = posts.club_id
+            AND m.user_id::text = auth.uid()::text
+        )
+    );
+
+CREATE POLICY "Posts can be created by club members"
+    ON posts FOR INSERT
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM members m
+            WHERE m.club_id = posts.club_id
+            AND m.user_id::text = auth.uid()::text
+        )
+    );
+
+CREATE POLICY "Posts can be updated by their authors"
+    ON posts FOR UPDATE
+    USING (user_id::text = auth.uid()::text);
+
+CREATE POLICY "Posts can be deleted by their authors"
+    ON posts FOR DELETE
+    USING (user_id::text = auth.uid()::text);
+
+-- Comments policies
+CREATE POLICY "Comments are viewable by club members"
+    ON comments FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM posts p
+            JOIN members m ON m.club_id = p.club_id
+            WHERE p.id = comments.post_id
+            AND m.user_id::text = auth.uid()::text
+        )
+    );
+
+CREATE POLICY "Comments can be created by club members"
+    ON comments FOR INSERT
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM posts p
+            JOIN members m ON m.club_id = p.club_id
+            WHERE p.id = comments.post_id
+            AND m.user_id::text = auth.uid()::text
+        )
+    );
+
+CREATE POLICY "Comments can be updated by their authors"
+    ON comments FOR UPDATE
+    USING (user_id::text = auth.uid()::text);
+
+CREATE POLICY "Comments can be deleted by their authors"
+    ON comments FOR DELETE
+    USING (user_id::text = auth.uid()::text);
+
+-- Reactions policies
+CREATE POLICY "Reactions are viewable by club members"
+    ON reactions FOR SELECT
+    USING (
+        (post_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM posts p
+            JOIN members m ON m.club_id = p.club_id
+            WHERE p.id = reactions.post_id
+            AND m.user_id::text = auth.uid()::text
+        )) OR
+        (comment_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM comments c
+            JOIN posts p ON p.id = c.post_id
+            JOIN members m ON m.club_id = p.club_id
+            WHERE c.id = reactions.comment_id
+            AND m.user_id::text = auth.uid()::text
+        ))
+    );
+
+CREATE POLICY "Reactions can be created by club members"
+    ON reactions FOR INSERT
+    WITH CHECK (
+        (post_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM posts p
+            JOIN members m ON m.club_id = p.club_id
+            WHERE p.id = reactions.post_id
+            AND m.user_id::text = auth.uid()::text
+        )) OR
+        (comment_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM comments c
+            JOIN posts p ON p.id = c.post_id
+            JOIN members m ON m.club_id = p.club_id
+            WHERE c.id = reactions.comment_id
+            AND m.user_id::text = auth.uid()::text
+        ))
+    );
+
+CREATE POLICY "Reactions can be updated by their authors"
+    ON reactions FOR UPDATE
+    USING (user_id::text = auth.uid()::text);
+
+CREATE POLICY "Reactions can be deleted by their authors"
+    ON reactions FOR DELETE
+    USING (user_id::text = auth.uid()::text); 
