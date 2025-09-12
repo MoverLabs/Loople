@@ -411,10 +411,11 @@ async function handleGetComments(supabaseClient: any, postId: number, userClubId
     .from('comments')
     .select(`
       *,
-      users (
+      users!comments_user_id_fkey (
         id,
         email,
-        raw_user_meta_data
+        first_name,
+        last_name
       )
     `)
     .eq('post_id', postId)
@@ -461,7 +462,7 @@ async function handleCreateComment(supabaseClient: any, req: Request, userId: st
   // Get user data
   const { data: userData } = await supabaseClient
     .from('users')
-    .select('id, email, raw_user_meta_data')
+    .select('id, email, first_name, last_name')
     .eq('id', userId)
     .single()
 
@@ -475,10 +476,11 @@ async function handleCreateComment(supabaseClient: any, req: Request, userId: st
     })
     .select(`
       *,
-      users (
+      users!comments_user_id_fkey (
         id,
         email,
-        raw_user_meta_data
+        first_name,
+        last_name
       )
     `)
     .single()
@@ -688,7 +690,7 @@ async function handleUpdatePost(supabaseClient: any, req: Request, userId: strin
   // Get user data for response
   const { data: userData } = await supabaseClient
     .from('users')
-    .select('id, email, raw_user_meta_data')
+    .select('id, email, first_name, last_name')
     .eq('id', userId)
     .single()
 
@@ -697,8 +699,8 @@ async function handleUpdatePost(supabaseClient: any, req: Request, userId: strin
     users: {
       id: userData.id,
       email: userData.email,
-      first_name: userData.raw_user_meta_data?.first_name,
-      last_name: userData.raw_user_meta_data?.last_name
+      first_name: userData.first_name,
+      last_name: userData.last_name
     }
   }
 

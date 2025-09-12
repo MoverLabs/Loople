@@ -318,11 +318,11 @@ CREATE POLICY "Comments can be created by club members"
 
 CREATE POLICY "Comments can be updated by their authors"
     ON comments FOR UPDATE
-    USING (user_id = auth.uid());
+    USING (user_id = auth.uid()::text);
 
 CREATE POLICY "Comments can be deleted by their authors"
     ON comments FOR DELETE
-    USING (user_id = auth.uid());
+    USING (user_id = auth.uid()::text);
 
 -- Reactions policies
 CREATE POLICY "Reactions are viewable by club members"
