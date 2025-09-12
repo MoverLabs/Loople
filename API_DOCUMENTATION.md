@@ -984,6 +984,144 @@ curl -X POST https://your-project.supabase.co/functions/v1/clubs \
 
 ---
 
+## Posts Endpoints
+
+### Get Posts
+
+**GET** `/posts`
+
+Retrieves posts from clubs the user is a member of.
+
+#### Query Parameters
+
+```typescript
+interface PostsQueryParams {
+  club_id?: number
+  user_id?: string
+  content_type?: 'text' | 'event' | 'poll'
+  page?: number
+  limit?: number
+  search?: string
+  sort_by?: string
+  sort_order?: 'asc' | 'desc'
+}
+```
+
+#### Response
+
+```typescript
+interface PostsResponse {
+  success: boolean
+  data?: {
+    id: number
+    club_id: number
+    user_id: string
+    content_type: 'text' | 'event' | 'poll'
+    content_text: string
+    event_id?: number
+    poll_question?: string
+    poll_options?: string
+    poll_votes?: string
+    is_active: boolean
+    created_at: string
+    updated_at: string
+    events?: Event
+    users: {
+      id: string
+      email: string
+      raw_user_meta_data: any
+    }
+    reaction_count: number
+    comment_count: number
+    reactions_by_type: Record<string, number>
+  }[]
+  error?: string
+}
+```
+
+#### Example
+
+```bash
+curl -X GET "https://your-project.supabase.co/functions/v1/posts?club_id=1&limit=20" \
+  -H "Authorization: Bearer <token>"
+```
+
+### Create Post
+
+**POST** `/posts`
+
+Creates a new post in a club the user is a member of.
+
+#### Request Body
+
+```typescript
+interface CreatePostRequest {
+  club_id: number
+  content_type: 'text' | 'event' | 'poll'
+  content_text: string
+  event_id?: number
+  poll_question?: string
+  poll_options?: string[]
+}
+```
+
+#### Example
+
+```bash
+curl -X POST https://your-project.supabase.co/functions/v1/posts \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "club_id": 1,
+    "content_type": "text",
+    "content_text": "Hello everyone! Great practice today."
+  }'
+```
+
+### Create Poll Post
+
+```bash
+curl -X POST https://your-project.supabase.co/functions/v1/posts \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "club_id": 1,
+    "content_type": "poll",
+    "content_text": "What time works best for our next practice?",
+    "poll_question": "What time works best for our next practice?",
+    "poll_options": ["6:00 AM", "7:00 AM", "8:00 AM"]
+  }'
+```
+
+### Vote on Poll
+
+**POST** `/polls`
+
+Votes on a poll.
+
+#### Request Body
+
+```typescript
+interface PollVoteRequest {
+  post_id: number
+  option_index: number
+}
+```
+
+#### Example
+
+```bash
+curl -X POST https://your-project.supabase.co/functions/v1/polls \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "post_id": 1,
+    "option_index": 0
+  }'
+```
+
+---
+
 ## Support
 
 For API support and questions:
