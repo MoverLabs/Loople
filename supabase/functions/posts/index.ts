@@ -70,9 +70,14 @@ serve(async (req) => {
     const { method, url } = req
     const urlObj = new URL(url)
     const pathSegments = urlObj.pathname.split('/')
-    const path = pathSegments.slice(3).join('/') // Remove '/functions/v1/posts' prefix
+    
+    // For Supabase Edge Functions: /functions/v1/posts/1/reactions
+    // We need to get everything after '/functions/v1/posts'
+    const postsIndex = pathSegments.indexOf('posts')
+    const path = postsIndex !== -1 ? pathSegments.slice(postsIndex + 1).join('/') : ''
     
     console.log('URL path segments:', pathSegments)
+    console.log('Posts index:', postsIndex)
     console.log('Parsed path:', path)
 
     // Parse query parameters for GET requests
@@ -108,48 +113,48 @@ serve(async (req) => {
     switch (method) {
       case 'GET':
         // Handle different GET endpoints
-        if (path === '' || path === 'posts') {
+        if (path === '') {
           return await handleGetPosts(supabaseClient, userClubIds, queryParams)
-        } else if (path?.startsWith('posts/') && path.includes('/comments')) {
-          const postId = parseInt(path.split('/')[1])
+        } else if (path.includes('/comments')) {
+          const postId = parseInt(path.split('/')[0])
           return await handleGetComments(supabaseClient, postId, userClubIds, queryParams)
-        } else if (path?.startsWith('posts/') && path.includes('/reactions')) {
-          const postId = parseInt(path.split('/')[1])
+        } else if (path.includes('/reactions')) {
+          const postId = parseInt(path.split('/')[0])
           return await handleGetReactions(supabaseClient, postId, userClubIds)
         } else {
           return buildErrorResponse('Invalid endpoint', 404)
         }
 
       case 'POST':
-        if (path === '' || path === 'posts') {
+        if (path === '') {
           return await handleCreatePost(supabaseClient, req, user.id, userClubIds, user, userData)
-        } else if (path?.startsWith('posts/') && path.includes('/comments')) {
-          const postId = parseInt(path.split('/')[1])
+        } else if (path.includes('/comments')) {
+          const postId = parseInt(path.split('/')[0])
           return await handleCreateComment(supabaseClient, req, user.id, postId, userClubIds)
-        } else if (path?.startsWith('posts/') && path.includes('/reactions')) {
-          const postId = parseInt(path.split('/')[1])
+        } else if (path.includes('/reactions')) {
+          const postId = parseInt(path.split('/')[0])
           return await handleCreateReaction(supabaseClient, req, user.id, postId, userClubIds)
         } else {
           return buildErrorResponse('Invalid endpoint', 404)
         }
 
       case 'PUT':
-        if (path?.startsWith('posts/') && path.includes('/reactions')) {
-          const postId = parseInt(path.split('/')[1])
+        if (path.includes('/reactions')) {
+          const postId = parseInt(path.split('/')[0])
           return await handleUpdateReaction(supabaseClient, req, user.id, postId, userClubIds)
         } else {
           return buildErrorResponse('Invalid endpoint', 404)
         }
 
       case 'DELETE':
-        if (path?.startsWith('posts/') && !path.includes('/')) {
-          const postId = parseInt(path.split('/')[1])
+        if (path !== '' && !path.includes('/')) {
+          const postId = parseInt(path)
           return await handleDeletePost(supabaseClient, user.id, postId, userClubIds)
-        } else if (path?.startsWith('posts/') && path.includes('/comments/')) {
-          const commentId = parseInt(path.split('/')[3])
+        } else if (path.includes('/comments/')) {
+          const commentId = parseInt(path.split('/')[2])
           return await handleDeleteComment(supabaseClient, user.id, commentId, userClubIds)
-        } else if (path?.startsWith('posts/') && path.includes('/reactions')) {
-          const postId = parseInt(path.split('/')[1])
+        } else if (path.includes('/reactions')) {
+          const postId = parseInt(path.split('/')[0])
           return await handleDeleteReaction(supabaseClient, user.id, postId, userClubIds)
         } else {
           return buildErrorResponse('Invalid endpoint', 404)
