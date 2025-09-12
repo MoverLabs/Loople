@@ -69,7 +69,11 @@ serve(async (req) => {
     // Get the request method and URL parameters
     const { method, url } = req
     const urlObj = new URL(url)
-    const path = urlObj.pathname.split('/').pop()
+    const pathSegments = urlObj.pathname.split('/')
+    const path = pathSegments.slice(3).join('/') // Remove '/functions/v1/posts' prefix
+    
+    console.log('URL path segments:', pathSegments)
+    console.log('Parsed path:', path)
 
     // Parse query parameters for GET requests
     const queryParams: PostQueryParams = {}
@@ -104,7 +108,7 @@ serve(async (req) => {
     switch (method) {
       case 'GET':
         // Handle different GET endpoints
-        if (path === 'posts') {
+        if (path === '' || path === 'posts') {
           return await handleGetPosts(supabaseClient, userClubIds, queryParams)
         } else if (path?.startsWith('posts/') && path.includes('/comments')) {
           const postId = parseInt(path.split('/')[1])
@@ -117,7 +121,7 @@ serve(async (req) => {
         }
 
       case 'POST':
-        if (path === 'posts') {
+        if (path === '' || path === 'posts') {
           return await handleCreatePost(supabaseClient, req, user.id, userClubIds, user, userData)
         } else if (path?.startsWith('posts/') && path.includes('/comments')) {
           const postId = parseInt(path.split('/')[1])
