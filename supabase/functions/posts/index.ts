@@ -256,6 +256,16 @@ async function handleGetPosts(supabaseClient: any, userClubIds: number[], queryP
     const postReactions = reactions?.filter(r => r.post_id === post.id) || []
     const postComments = comments?.filter(c => c.post_id === post.id) || []
     
+    // Extract user vote for poll posts
+    let userVote = null
+    if (post.content_type === 'poll' && post.poll_votes) {
+      const pollVotes = JSON.parse(post.poll_votes)
+      const userVoteKey = `user_${user.id}`
+      if (pollVotes[userVoteKey] !== undefined) {
+        userVote = pollVotes[userVoteKey]
+      }
+    }
+    
     return {
       ...post,
       users: userMap.get(post.user_id) || {
@@ -269,7 +279,8 @@ async function handleGetPosts(supabaseClient: any, userClubIds: number[], queryP
       reactions_by_type: postReactions.reduce((acc: any, r) => {
         acc[r.reaction_type] = (acc[r.reaction_type] || 0) + 1
         return acc
-      }, {})
+      }, {}),
+      user_vote: userVote
     }
   })
 
