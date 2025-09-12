@@ -1015,7 +1015,7 @@ interface PostsResponse {
   data?: {
     id: number
     club_id: number
-    user_id: string
+    user_id: string // UUID
     content_type: 'text' | 'event' | 'poll'
     content_text: string
     event_id?: number
@@ -1027,7 +1027,7 @@ interface PostsResponse {
     updated_at: string
     events?: Event
     users: {
-      id: string
+      id: string // UUID
       email: string
       raw_user_meta_data: any
     }

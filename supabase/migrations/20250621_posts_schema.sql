@@ -17,7 +17,7 @@ END $$;
 CREATE TABLE IF NOT EXISTS posts (
     id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
     club_id bigint NOT NULL,
-    user_id text NOT NULL,
+    user_id uuid NOT NULL,
     content_type post_type_enum NOT NULL DEFAULT 'text',
     content_text text NOT NULL,
     event_id bigint,
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS posts (
 CREATE TABLE IF NOT EXISTS comments (
     id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
     post_id bigint NOT NULL,
-    user_id text NOT NULL,
+    user_id uuid NOT NULL,
     parent_comment_id bigint,
     content text NOT NULL,
     is_active boolean DEFAULT true,
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS reactions (
     id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
     post_id bigint,
     comment_id bigint,
-    user_id text NOT NULL,
+    user_id uuid NOT NULL,
     reaction_type reaction_type_enum NOT NULL DEFAULT 'like',
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
