@@ -9,6 +9,7 @@ ALTER TABLE clubs DISABLE ROW LEVEL SECURITY;
 ALTER TABLE posts DISABLE ROW LEVEL SECURITY;
 ALTER TABLE comments DISABLE ROW LEVEL SECURITY;
 ALTER TABLE reactions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE media_attachments DISABLE ROW LEVEL SECURITY;
 
 -- Remove all existing policies
 DO $$ 
@@ -55,6 +56,7 @@ ALTER TABLE clubs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE comments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE media_attachments ENABLE ROW LEVEL SECURITY;
 
 -- Service role bypass for all tables
 CREATE POLICY "Service role bypass"
@@ -95,6 +97,10 @@ CREATE POLICY "Service role bypass"
 
 CREATE POLICY "Service role bypass"
     ON reactions FOR ALL
+    USING (auth.jwt() ->> 'role' = 'service_role');
+
+CREATE POLICY "Service role bypass"
+    ON media_attachments FOR ALL
     USING (auth.jwt() ->> 'role' = 'service_role');
 
 -- Basic policies for clubs
@@ -361,4 +367,50 @@ CREATE POLICY "Reactions can be updated by their authors"
 
 CREATE POLICY "Reactions can be deleted by their authors"
     ON reactions FOR DELETE
-    USING (user_id = auth.uid()); 
+    USING (user_id = auth.uid());
+
+-- Media attachments policies
+CREATE POLICY "Media attachments are viewable by club members"
+    ON media_attachments FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM posts p
+            JOIN members m ON m.club_id = p.club_id
+            WHERE p.id = media_attachments.post_id
+            AND p.is_active = true
+            AND (m.user_id = auth.uid()::text OR m.email = auth.jwt() ->> 'email')
+        )
+    );
+
+CREATE POLICY "Media attachments can be created by post authors"
+    ON media_attachments FOR INSERT
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM posts p
+            WHERE p.id = media_attachments.post_id
+            AND p.user_id = auth.uid()
+            AND p.is_active = true
+        )
+    );
+
+CREATE POLICY "Media attachments can be updated by post authors"
+    ON media_attachments FOR UPDATE
+    USING (
+        EXISTS (
+            SELECT 1 FROM posts p
+            WHERE p.id = media_attachments.post_id
+            AND p.user_id = auth.uid()
+            AND p.is_active = true
+        )
+    );
+
+CREATE POLICY "Media attachments can be deleted by post authors"
+    ON media_attachments FOR DELETE
+    USING (
+        EXISTS (
+            SELECT 1 FROM posts p
+            WHERE p.id = media_attachments.post_id
+            AND p.user_id = auth.uid()
+            AND p.is_active = true
+        )
+    ); 

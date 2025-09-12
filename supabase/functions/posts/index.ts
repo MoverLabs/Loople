@@ -20,6 +20,9 @@ interface PostQueryParams {
   search?: string
   sort_by?: string
   sort_order?: 'asc' | 'desc'
+  date_from?: string
+  date_to?: string
+  has_media?: boolean
 }
 
 interface CommentRequest {
@@ -142,6 +145,9 @@ serve(async (req) => {
         if (path.includes('/reactions')) {
           const postId = parseInt(path.split('/')[0])
           return await handleUpdateReaction(supabaseClient, req, user.id, postId, userClubIds)
+        } else if (path !== '' && !path.includes('/')) {
+          const postId = parseInt(path)
+          return await handleUpdatePost(supabaseClient, req, user.id, postId, userClubIds)
         } else {
           return buildErrorResponse('Invalid endpoint', 404)
         }
@@ -199,8 +205,35 @@ async function handleGetPosts(supabaseClient: any, userClubIds: number[], queryP
   if (queryParams.content_type) {
     query = query.eq('content_type', queryParams.content_type)
   }
+  
+  // Advanced search functionality
   if (queryParams.search) {
-    query = query.ilike('content_text', `%${queryParams.search}%`)
+    const searchTerm = queryParams.search.trim()
+    if (searchTerm.length > 0) {
+      // Search in content_text, poll_question, and event titles
+      query = query.or(`
+        content_text.ilike.%${searchTerm}%,
+        poll_question.ilike.%${searchTerm}%,
+        events.title.ilike.%${searchTerm}%
+      `)
+    }
+  }
+
+  // Date range filtering
+  if (queryParams.date_from) {
+    query = query.gte('created_at', queryParams.date_from)
+  }
+  if (queryParams.date_to) {
+    query = query.lte('created_at', queryParams.date_to)
+  }
+
+  // Has media attachments filter
+  if (queryParams.has_media !== undefined) {
+    if (queryParams.has_media) {
+      query = query.not('id', 'in', `(SELECT post_id FROM media_attachments WHERE post_id IS NOT NULL)`)
+    } else {
+      query = query.not('id', 'in', `(SELECT post_id FROM media_attachments WHERE post_id IS NOT NULL)`)
+    }
   }
 
   // Apply sorting
@@ -376,7 +409,14 @@ async function handleGetComments(supabaseClient: any, postId: number, userClubId
 
   let query = supabaseClient
     .from('comments')
-    .select('*')
+    .select(`
+      *,
+      users (
+        id,
+        email,
+        raw_user_meta_data
+      )
+    `)
     .eq('post_id', postId)
     .eq('is_active', true)
     .order('created_at', { ascending: true })
@@ -402,6 +442,11 @@ async function handleCreateComment(supabaseClient: any, req: Request, userId: st
   const body: CommentRequest = await req.json()
   console.log('Creating comment with data:', body)
 
+  // Validate required fields
+  if (!body.content || body.content.trim().length === 0) {
+    return buildErrorResponse('Comment content is required', 400)
+  }
+
   // Verify user has access to this post
   const { data: post } = await supabaseClient
     .from('posts')
@@ -413,15 +458,29 @@ async function handleCreateComment(supabaseClient: any, req: Request, userId: st
     return buildErrorResponse('Post not found or access denied', 404)
   }
 
+  // Get user data
+  const { data: userData } = await supabaseClient
+    .from('users')
+    .select('id, email, raw_user_meta_data')
+    .eq('id', userId)
+    .single()
+
   const { data: comment, error } = await supabaseClient
     .from('comments')
     .insert({
       post_id: postId,
       user_id: userId,
-      content: body.content,
+      content: body.content.trim(),
       parent_comment_id: body.parent_comment_id || null
     })
-    .select('*')
+    .select(`
+      *,
+      users (
+        id,
+        email,
+        raw_user_meta_data
+      )
+    `)
     .single()
 
   if (error) {
@@ -562,6 +621,89 @@ async function handleUpdateReaction(supabaseClient: any, req: Request, userId: s
 
   console.log('Successfully updated reaction:', reaction.id)
   return buildResponse(reaction)
+}
+
+async function handleUpdatePost(supabaseClient: any, req: Request, userId: string, postId: number, userClubIds: number[]) {
+  const body: PostRequest = await req.json()
+  console.log('Updating post with data:', body)
+
+  // Verify user owns this post and has access
+  const { data: existingPost } = await supabaseClient
+    .from('posts')
+    .select('club_id, user_id, content_type')
+    .eq('id', postId)
+    .single()
+
+  if (!existingPost || existingPost.user_id !== userId || !userClubIds.includes(existingPost.club_id)) {
+    return buildErrorResponse('Post not found or access denied', 404)
+  }
+
+  // Validate required fields
+  if (!body.content_text || body.content_text.trim().length === 0) {
+    return buildErrorResponse('Post content is required', 400)
+  }
+
+  // Validate poll data if content_type is poll
+  if (body.content_type === 'poll') {
+    if (!body.poll_question || !body.poll_options || body.poll_options.length < 2) {
+      return buildErrorResponse('poll_question and poll_options (min 2) are required for poll posts', 400)
+    }
+  }
+
+  // Prepare update data
+  const updateData: any = {
+    content_text: body.content_text.trim(),
+    updated_at: new Date().toISOString()
+  }
+
+  // Update poll data if it's a poll post
+  if (body.content_type === 'poll') {
+    updateData.poll_question = body.poll_question
+    updateData.poll_options = JSON.stringify(body.poll_options)
+  }
+
+  const { data: updatedPost, error } = await supabaseClient
+    .from('posts')
+    .update(updateData)
+    .eq('id', postId)
+    .select(`
+      *,
+      events (
+        id,
+        title,
+        description,
+        event_type,
+        start_date,
+        end_date,
+        location
+      )
+    `)
+    .single()
+
+  if (error) {
+    console.error('Error updating post:', error)
+    return buildErrorResponse('Error updating post', 500)
+  }
+
+  // Get user data for response
+  const { data: userData } = await supabaseClient
+    .from('users')
+    .select('id, email, raw_user_meta_data')
+    .eq('id', userId)
+    .single()
+
+  const postWithUser = {
+    ...updatedPost,
+    users: {
+      id: userData.id,
+      email: userData.email,
+      first_name: userData.raw_user_meta_data?.first_name,
+      last_name: userData.raw_user_meta_data?.last_name
+    }
+  }
+
+  console.log('Successfully updated post:', postId)
+  return buildResponse(postWithUser)
 }
 
 async function handleDeletePost(supabaseClient: any, userId: string, postId: number, userClubIds: number[]) {
