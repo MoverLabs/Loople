@@ -118,7 +118,7 @@ serve(async (req) => {
 
       case 'POST':
         if (path === 'posts') {
-          return await handleCreatePost(supabaseClient, req, user.id, userClubIds)
+          return await handleCreatePost(supabaseClient, req, user.id, userClubIds, user, userData)
         } else if (path?.startsWith('posts/') && path.includes('/comments')) {
           const postId = parseInt(path.split('/')[1])
           return await handleCreateComment(supabaseClient, req, user.id, postId, userClubIds)
@@ -175,12 +175,6 @@ async function handleGetPosts(supabaseClient: any, userClubIds: number[], queryP
         start_date,
         end_date,
         location
-      ),
-      users (
-        id,
-        email,
-        first_name,
-        last_name
       )
     `)
     .in('club_id', userClubIds)
@@ -235,6 +229,19 @@ async function handleGetPosts(supabaseClient: any, userClubIds: number[], queryP
     .in('post_id', postIds)
     .eq('is_active', true)
 
+  // Get user data for all post authors
+  const userIds = [...new Set(posts.map((post: any) => post.user_id))]
+  const { data: postUsers } = await supabaseClient
+    .from('users')
+    .select('id, email, first_name, last_name')
+    .in('id', userIds)
+
+  // Create a map for quick user lookup
+  const userMap = new Map()
+  postUsers?.forEach((user: any) => {
+    userMap.set(user.id, user)
+  })
+
   // Process posts to include reaction and comment counts
   const processedPosts = posts.map((post: any) => {
     const postReactions = reactions?.filter(r => r.post_id === post.id) || []
@@ -242,6 +249,12 @@ async function handleGetPosts(supabaseClient: any, userClubIds: number[], queryP
     
     return {
       ...post,
+      users: userMap.get(post.user_id) || {
+        id: post.user_id,
+        email: '',
+        first_name: 'Unknown',
+        last_name: 'User'
+      },
       reaction_count: postReactions.length,
       comment_count: postComments.length,
       reactions_by_type: postReactions.reduce((acc: any, r) => {
@@ -255,7 +268,7 @@ async function handleGetPosts(supabaseClient: any, userClubIds: number[], queryP
   return buildResponse(processedPosts)
 }
 
-async function handleCreatePost(supabaseClient: any, req: Request, userId: string, userClubIds: number[]) {
+async function handleCreatePost(supabaseClient: any, req: Request, userId: string, userClubIds: number[], user: any, userData: any) {
   const body: PostRequest = await req.json()
   console.log('Creating post with data:', body)
 
@@ -298,12 +311,6 @@ async function handleCreatePost(supabaseClient: any, req: Request, userId: strin
         start_date,
         end_date,
         location
-      ),
-      users (
-        id,
-        email,
-        first_name,
-        last_name
       )
     `)
     .single()
@@ -313,8 +320,19 @@ async function handleCreatePost(supabaseClient: any, req: Request, userId: strin
     return buildErrorResponse('Error creating post', 500)
   }
 
+  // Add user data to the response
+  const postWithUser = {
+    ...post,
+    users: {
+      id: user.id,
+      email: user.email,
+      first_name: userData.first_name,
+      last_name: userData.last_name
+    }
+  }
+
   console.log('Successfully created post:', post.id)
-  return buildResponse(post)
+  return buildResponse(postWithUser)
 }
 
 async function handleGetComments(supabaseClient: any, postId: number, userClubIds: number[], queryParams: PostQueryParams) {
@@ -333,15 +351,7 @@ async function handleGetComments(supabaseClient: any, postId: number, userClubId
 
   let query = supabaseClient
     .from('comments')
-    .select(`
-      *,
-      users (
-        id,
-        email,
-        first_name,
-        last_name
-      )
-    `)
+    .select('*')
     .eq('post_id', postId)
     .eq('is_active', true)
     .order('created_at', { ascending: true })
@@ -386,15 +396,7 @@ async function handleCreateComment(supabaseClient: any, req: Request, userId: st
       content: body.content,
       parent_comment_id: body.parent_comment_id || null
     })
-    .select(`
-      *,
-      users (
-        id,
-        email,
-        first_name,
-        last_name
-      )
-    `)
+    .select('*')
     .single()
 
   if (error) {
