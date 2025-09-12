@@ -176,10 +176,11 @@ async function handleGetPosts(supabaseClient: any, userClubIds: number[], queryP
         end_date,
         location
       ),
-      users!posts_user_id_fkey (
+      users (
         id,
         email,
-        raw_user_meta_data
+        first_name,
+        last_name
       )
     `)
     .in('club_id', userClubIds)
@@ -298,10 +299,11 @@ async function handleCreatePost(supabaseClient: any, req: Request, userId: strin
         end_date,
         location
       ),
-      users!posts_user_id_fkey (
+      users (
         id,
         email,
-        raw_user_meta_data
+        first_name,
+        last_name
       )
     `)
     .single()
@@ -333,10 +335,11 @@ async function handleGetComments(supabaseClient: any, postId: number, userClubId
     .from('comments')
     .select(`
       *,
-      users!comments_user_id_fkey (
+      users (
         id,
         email,
-        raw_user_meta_data
+        first_name,
+        last_name
       )
     `)
     .eq('post_id', postId)
@@ -385,10 +388,11 @@ async function handleCreateComment(supabaseClient: any, req: Request, userId: st
     })
     .select(`
       *,
-      users!comments_user_id_fkey (
+      users (
         id,
         email,
-        raw_user_meta_data
+        first_name,
+        last_name
       )
     `)
     .single()
