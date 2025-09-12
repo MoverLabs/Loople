@@ -125,7 +125,10 @@ CREATE POLICY "Members are viewable by club members and owners"
         )
         OR
         -- Members can view other members in their clubs
-        members.user_id::text = auth.uid()::text
+        members.user_id = auth.uid()::text
+        OR
+        -- Members can view by email match
+        members.email = auth.jwt() ->> 'email'
         OR
         -- Service role can view all
         (auth.jwt() ->> 'role') = 'service_role'
@@ -253,20 +256,7 @@ CREATE POLICY "Events are manageable by club owners"
         )
     );
 
--- Add policies for table joins
-CREATE POLICY "Allow joins between clubs and members"
-    ON members FOR SELECT
-    USING (
-        -- Allow if user is club owner
-        EXISTS (
-            SELECT 1 FROM clubs c
-            WHERE c.id = members.club_id
-            AND c.owner_id::text = auth.uid()::text
-        )
-        OR
-        -- Allow if user is the member themselves
-        user_id::text = auth.uid()::text
-    );
+-- Note: Members SELECT policy is already defined above as "Members are viewable by club members and owners"
 
 -- Posts policies
 CREATE POLICY "Posts are viewable by club members"
@@ -275,7 +265,7 @@ CREATE POLICY "Posts are viewable by club members"
         EXISTS (
             SELECT 1 FROM members m
             WHERE m.club_id = posts.club_id
-            AND m.user_id::text = auth.uid()::text
+            AND (m.user_id = auth.uid()::text OR m.email = auth.jwt() ->> 'email')
         )
     );
 
@@ -285,17 +275,17 @@ CREATE POLICY "Posts can be created by club members"
         EXISTS (
             SELECT 1 FROM members m
             WHERE m.club_id = posts.club_id
-            AND m.user_id::text = auth.uid()::text
+            AND (m.user_id = auth.uid()::text OR m.email = auth.jwt() ->> 'email')
         )
     );
 
 CREATE POLICY "Posts can be updated by their authors"
     ON posts FOR UPDATE
-    USING (user_id::text = auth.uid()::text);
+    USING (user_id = auth.uid());
 
 CREATE POLICY "Posts can be deleted by their authors"
     ON posts FOR DELETE
-    USING (user_id::text = auth.uid()::text);
+    USING (user_id = auth.uid());
 
 -- Comments policies
 CREATE POLICY "Comments are viewable by club members"
@@ -305,7 +295,7 @@ CREATE POLICY "Comments are viewable by club members"
             SELECT 1 FROM posts p
             JOIN members m ON m.club_id = p.club_id
             WHERE p.id = comments.post_id
-            AND m.user_id::text = auth.uid()::text
+            AND (m.user_id = auth.uid()::text OR m.email = auth.jwt() ->> 'email')
         )
     );
 
@@ -316,17 +306,17 @@ CREATE POLICY "Comments can be created by club members"
             SELECT 1 FROM posts p
             JOIN members m ON m.club_id = p.club_id
             WHERE p.id = comments.post_id
-            AND m.user_id::text = auth.uid()::text
+            AND (m.user_id = auth.uid()::text OR m.email = auth.jwt() ->> 'email')
         )
     );
 
 CREATE POLICY "Comments can be updated by their authors"
     ON comments FOR UPDATE
-    USING (user_id::text = auth.uid()::text);
+    USING (user_id = auth.uid());
 
 CREATE POLICY "Comments can be deleted by their authors"
     ON comments FOR DELETE
-    USING (user_id::text = auth.uid()::text);
+    USING (user_id = auth.uid());
 
 -- Reactions policies
 CREATE POLICY "Reactions are viewable by club members"
@@ -336,14 +326,14 @@ CREATE POLICY "Reactions are viewable by club members"
             SELECT 1 FROM posts p
             JOIN members m ON m.club_id = p.club_id
             WHERE p.id = reactions.post_id
-            AND m.user_id::text = auth.uid()::text
+            AND (m.user_id = auth.uid()::text OR m.email = auth.jwt() ->> 'email')
         )) OR
         (comment_id IS NOT NULL AND EXISTS (
             SELECT 1 FROM comments c
             JOIN posts p ON p.id = c.post_id
             JOIN members m ON m.club_id = p.club_id
             WHERE c.id = reactions.comment_id
-            AND m.user_id::text = auth.uid()::text
+            AND (m.user_id = auth.uid()::text OR m.email = auth.jwt() ->> 'email')
         ))
     );
 
@@ -354,21 +344,21 @@ CREATE POLICY "Reactions can be created by club members"
             SELECT 1 FROM posts p
             JOIN members m ON m.club_id = p.club_id
             WHERE p.id = reactions.post_id
-            AND m.user_id::text = auth.uid()::text
+            AND (m.user_id = auth.uid()::text OR m.email = auth.jwt() ->> 'email')
         )) OR
         (comment_id IS NOT NULL AND EXISTS (
             SELECT 1 FROM comments c
             JOIN posts p ON p.id = c.post_id
             JOIN members m ON m.club_id = p.club_id
             WHERE c.id = reactions.comment_id
-            AND m.user_id::text = auth.uid()::text
+            AND (m.user_id = auth.uid()::text OR m.email = auth.jwt() ->> 'email')
         ))
     );
 
 CREATE POLICY "Reactions can be updated by their authors"
     ON reactions FOR UPDATE
-    USING (user_id::text = auth.uid()::text);
+    USING (user_id = auth.uid());
 
 CREATE POLICY "Reactions can be deleted by their authors"
     ON reactions FOR DELETE
-    USING (user_id::text = auth.uid()::text); 
+    USING (user_id = auth.uid()); 

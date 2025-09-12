@@ -78,6 +78,25 @@ serve(async (req) => {
         if (!path || path === 'clubs') {
           console.log('Fetching all clubs for user:', user.id)
           // Get all clubs where user is a member (check both user_id and email)
+          // First get the club IDs where user is a member
+          const { data: memberClubs, error: memberError } = await supabaseClient
+            .from('members')
+            .select('club_id')
+            .or(`user_id.eq."${user.id}",email.eq."${user.email}"`)
+          
+          if (memberError) {
+            console.error('Error fetching member clubs:', memberError)
+            throw memberError
+          }
+          
+          if (!memberClubs || memberClubs.length === 0) {
+            console.log('No clubs found for user')
+            return buildResponse([])
+          }
+          
+          const clubIds = memberClubs.map(m => m.club_id)
+          
+          // Now get the clubs
           const { data: clubs, error } = await supabaseClient
             .from('clubs')
             .select(`
@@ -86,13 +105,9 @@ serve(async (req) => {
               subdomain, 
               description, 
               contact_email,
-              owner_id,
-              members!inner (
-                user_id,
-                email
-              )
+              owner_id
             `)
-            .or(`members.user_id.eq.${user.id},members.email.eq.${user.email}`)
+            .in('id', clubIds)
           
           if (error) {
             console.error('Error fetching clubs:', error)
@@ -109,7 +124,8 @@ serve(async (req) => {
         } else {
           console.log('Fetching specific club by subdomain:', path)
           // Get specific club by subdomain (check both user_id and email)
-          const { data: club, error } = await supabaseClient
+          // First get the club by subdomain
+          const { data: club, error: clubError } = await supabaseClient
             .from('clubs')
             .select(`
               id, 
@@ -117,27 +133,38 @@ serve(async (req) => {
               subdomain, 
               description, 
               contact_email,
-              owner_id,
-              members!inner (
-                user_id,
-                first_name,
-                last_name,
-                email,
-                member_type
-              )
+              owner_id
             `)
             .eq('subdomain', path)
-            .or(`members.user_id.eq.${user.id},members.email.eq.${user.email}`)
             .single()
           
-          if (error) {
-            console.error('Error fetching club:', error)
-            throw error
+          if (clubError) {
+            console.error('Error fetching club:', clubError)
+            throw clubError
           }
           
-          console.log('Successfully fetched club:', club)
-          return buildResponse({
+          // Check if user is a member of this club
+          const { data: membership, error: memberError } = await supabaseClient
+            .from('members')
+            .select('user_id, first_name, last_name, email, member_type')
+            .eq('club_id', club.id)
+            .or(`user_id.eq."${user.id}",email.eq."${user.email}"`)
+            .single()
+          
+          if (memberError) {
+            console.error('User is not a member of this club:', memberError)
+            throw new Error('Access denied: You are not a member of this club')
+          }
+          
+          // Add membership info to club data
+          const clubWithMembers = {
             ...club,
+            members: [membership]
+          }
+          
+          console.log('Successfully fetched club:', clubWithMembers)
+          return buildResponse({
+            ...clubWithMembers,
             is_owner: club.owner_id === user.id
           })
         }
