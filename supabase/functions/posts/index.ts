@@ -114,7 +114,7 @@ serve(async (req) => {
       case 'GET':
         // Handle different GET endpoints
         if (path === '') {
-          return await handleGetPosts(supabaseClient, userClubIds, queryParams)
+          return await handleGetPosts(supabaseClient, userClubIds, queryParams, user)
         } else if (path.includes('/comments')) {
           const postId = parseInt(path.split('/')[0])
           return await handleGetComments(supabaseClient, postId, userClubIds, queryParams)
@@ -169,7 +169,7 @@ serve(async (req) => {
   }
 })
 
-async function handleGetPosts(supabaseClient: any, userClubIds: number[], queryParams: PostQueryParams) {
+async function handleGetPosts(supabaseClient: any, userClubIds: number[], queryParams: PostQueryParams, user: any) {
   console.log('Fetching posts with params:', queryParams)
   
   let query = supabaseClient
@@ -259,10 +259,15 @@ async function handleGetPosts(supabaseClient: any, userClubIds: number[], queryP
     // Extract user vote for poll posts
     let userVote = null
     if (post.content_type === 'poll' && post.poll_votes) {
-      const pollVotes = JSON.parse(post.poll_votes)
-      const userVoteKey = `user_${user.id}`
-      if (pollVotes[userVoteKey] !== undefined) {
-        userVote = pollVotes[userVoteKey]
+      try {
+        const pollVotes = JSON.parse(post.poll_votes)
+        const userVoteKey = `user_${user.id}`
+        if (pollVotes[userVoteKey] !== undefined) {
+          userVote = pollVotes[userVoteKey]
+        }
+      } catch (error) {
+        console.warn('Failed to parse poll votes for post:', post.id, error)
+        userVote = null
       }
     }
     
