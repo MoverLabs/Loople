@@ -190,6 +190,15 @@ async function handleGetPosts(supabaseClient: any, userClubIds: number[], queryP
         start_date,
         end_date,
         location
+      ),
+      media_attachments (
+        id,
+        file_name,
+        file_path,
+        file_size,
+        mime_type,
+        file_type,
+        created_at
       )
     `)
     .in('club_id', userClubIds)

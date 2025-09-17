@@ -10,7 +10,6 @@ ALTER TABLE posts DISABLE ROW LEVEL SECURITY;
 ALTER TABLE comments DISABLE ROW LEVEL SECURITY;
 ALTER TABLE reactions DISABLE ROW LEVEL SECURITY;
 ALTER TABLE media_attachments DISABLE ROW LEVEL SECURITY;
-ALTER TABLE storage.objects DISABLE ROW LEVEL SECURITY;
 
 -- Remove all existing policies
 DO $$ 
@@ -24,6 +23,13 @@ BEGIN
         EXECUTE format('DROP POLICY IF EXISTS %I ON %I', r.policyname, r.tablename);
     END LOOP;
 END $$;
+
+-- Remove existing storage policies for post-media bucket
+DROP POLICY IF EXISTS "Post media files are viewable by club members" ON storage.objects;
+DROP POLICY IF EXISTS "Post media files can be uploaded by club members" ON storage.objects;
+DROP POLICY IF EXISTS "Post media files can be updated by post authors" ON storage.objects;
+DROP POLICY IF EXISTS "Post media files can be deleted by post authors" ON storage.objects;
+DROP POLICY IF EXISTS "Service role bypass" ON storage.objects;
 
 -- Create function for direct auth user deletion
 DROP FUNCTION IF EXISTS delete_auth_user(uuid);
@@ -58,7 +64,6 @@ ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE comments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE media_attachments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
 
 -- Service role bypass for all tables
 CREATE POLICY "Service role bypass"
@@ -324,11 +329,11 @@ CREATE POLICY "Comments can be created by club members"
 
 CREATE POLICY "Comments can be updated by their authors"
     ON comments FOR UPDATE
-    USING (user_id = auth.uid());
+    USING (user_id = auth.uid()::text);
 
 CREATE POLICY "Comments can be deleted by their authors"
     ON comments FOR DELETE
-    USING (user_id = auth.uid());
+    USING (user_id = auth.uid()::text);
 
 -- Reactions policies
 CREATE POLICY "Reactions are viewable by club members"
@@ -429,7 +434,7 @@ CREATE POLICY "Post media files are viewable by club members"
         AND EXISTS (
             SELECT 1 FROM posts p
             JOIN members m ON m.club_id = p.club_id
-            WHERE p.id = (storage.foldername(name))[1]::bigint
+            WHERE p.id = split_part(name, '/', 1)::bigint
             AND p.is_active = true
             AND (m.user_id = auth.uid()::text OR m.email = auth.jwt() ->> 'email')
         )
@@ -442,7 +447,7 @@ CREATE POLICY "Post media files can be uploaded by club members"
         AND EXISTS (
             SELECT 1 FROM posts p
             JOIN members m ON m.club_id = p.club_id
-            WHERE p.id = (storage.foldername(name))[1]::bigint
+            WHERE p.id = split_part(name, '/', 1)::bigint
             AND p.is_active = true
             AND (m.user_id = auth.uid()::text OR m.email = auth.jwt() ->> 'email')
         )
@@ -454,7 +459,7 @@ CREATE POLICY "Post media files can be updated by post authors"
         bucket_id = 'post-media' 
         AND EXISTS (
             SELECT 1 FROM posts p
-            WHERE p.id = (storage.foldername(name))[1]::bigint
+            WHERE p.id = split_part(name, '/', 1)::bigint
             AND p.user_id = auth.uid()
             AND p.is_active = true
         )
@@ -466,7 +471,7 @@ CREATE POLICY "Post media files can be deleted by post authors"
         bucket_id = 'post-media' 
         AND EXISTS (
             SELECT 1 FROM posts p
-            WHERE p.id = (storage.foldername(name))[1]::bigint
+            WHERE p.id = split_part(name, '/', 1)::bigint
             AND p.user_id = auth.uid()
             AND p.is_active = true
         )
