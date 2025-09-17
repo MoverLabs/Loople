@@ -69,7 +69,7 @@ serve(async (req) => {
 
     switch (method) {
       case 'GET':
-        if (path.includes('?')) {
+        if (url.searchParams.has('post_id')) {
           const postId = parseInt(url.searchParams.get('post_id') || '0')
           return await handleGetMediaAttachments(supabaseClient, postId, userClubIds)
         } else {
