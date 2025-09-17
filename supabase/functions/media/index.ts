@@ -57,7 +57,6 @@ serve(async (req) => {
       .from('members')
       .select('club_id')
       .eq('user_id', user.id)
-      .eq('status', 'confirmed')
 
     const userClubIds = memberships?.map(m => m.club_id) || []
     if (userClubIds.length === 0) {
