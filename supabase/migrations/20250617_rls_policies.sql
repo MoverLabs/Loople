@@ -4,6 +4,7 @@ ALTER TABLE members DISABLE ROW LEVEL SECURITY;
 ALTER TABLE program_memberships DISABLE ROW LEVEL SECURITY;
 ALTER TABLE users DISABLE ROW LEVEL SECURITY;
 ALTER TABLE events DISABLE ROW LEVEL SECURITY;
+ALTER TABLE event_registrations DISABLE ROW LEVEL SECURITY;
 ALTER TABLE roles DISABLE ROW LEVEL SECURITY;
 ALTER TABLE clubs DISABLE ROW LEVEL SECURITY;
 ALTER TABLE posts DISABLE ROW LEVEL SECURITY;
@@ -58,6 +59,7 @@ ALTER TABLE members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE program_memberships ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_registrations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE clubs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
@@ -108,6 +110,10 @@ CREATE POLICY "Service role bypass"
 
 CREATE POLICY "Service role bypass"
     ON media_attachments FOR ALL
+    USING (auth.jwt() ->> 'role' = 'service_role');
+
+CREATE POLICY "Service role bypass"
+    ON event_registrations FOR ALL
     USING (auth.jwt() ->> 'role' = 'service_role');
 
 CREATE POLICY "Service role bypass"
@@ -270,6 +276,66 @@ CREATE POLICY "Events are manageable by club owners"
             SELECT 1 FROM clubs c
             WHERE c.id = events.club_id
             AND c.owner_id::text = auth.uid()::text
+        )
+    );
+
+-- Event registrations policies
+CREATE POLICY "Event registrations are viewable by club members"
+    ON event_registrations FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM events e 
+            JOIN members m ON m.club_id = e.club_id 
+            WHERE e.id = event_registrations.event_id 
+            AND m.user_id::text = auth.uid()::text
+        )
+    );
+
+CREATE POLICY "Event registrations are manageable by club owners"
+    ON event_registrations FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM events e 
+            JOIN clubs c ON c.id = e.club_id 
+            WHERE e.id = event_registrations.event_id 
+            AND c.owner_id::text = auth.uid()::text
+        )
+    );
+
+CREATE POLICY "Members can create their own registrations"
+    ON event_registrations FOR INSERT
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM members m 
+            WHERE m.id = event_registrations.member_id 
+            AND m.user_id::text = auth.uid()::text
+        )
+    );
+
+CREATE POLICY "Members can update their own registrations"
+    ON event_registrations FOR UPDATE
+    USING (
+        EXISTS (
+            SELECT 1 FROM members m 
+            WHERE m.id = event_registrations.member_id 
+            AND m.user_id::text = auth.uid()::text
+        )
+    )
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM members m 
+            WHERE m.id = event_registrations.member_id 
+            AND m.user_id::text = auth.uid()::text
+        )
+    );
+
+CREATE POLICY "Members can delete their own registrations"
+    ON event_registrations FOR DELETE
+    USING (
+        EXISTS (
+            SELECT 1 FROM members m 
+            WHERE m.id = event_registrations.member_id 
+            AND m.user_id::text = auth.uid()::text
         )
     );
 
