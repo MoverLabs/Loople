@@ -84,7 +84,17 @@ serve(async (req) => {
     // Get the request method and URL parameters
     const { method, url } = req
     const urlObj = new URL(url)
-    const path = urlObj.pathname.split('/').pop()
+    const pathSegments = urlObj.pathname.split('/').filter(segment => segment !== '')
+    const path = pathSegments[pathSegments.length - 1] // Get the last segment (event ID)
+    const isSingleEventRequest = pathSegments.length > 1 && pathSegments[pathSegments.length - 2] === 'events'
+    
+    console.log('Request details:', {
+      pathname: urlObj.pathname,
+      pathSegments,
+      path,
+      isSingleEventRequest,
+      method
+    })
 
     // Parse query parameters for GET requests
     const queryParams: EventQueryParams = {}
@@ -118,6 +128,53 @@ serve(async (req) => {
 
     switch (method) {
       case 'GET':
+        // Check if this is a request for a specific event by ID
+        if (isSingleEventRequest && path) {
+          // This is a request for a specific event
+          const eventId = parseInt(path)
+          if (isNaN(eventId)) {
+            return buildErrorResponse('Invalid event ID', 400)
+          }
+
+          // Get the specific event
+          const { data: event, error: eventError } = await supabaseClient
+            .from('events')
+            .select(`
+              *,
+              clubs (
+                name,
+                subdomain
+              ),
+              programs (
+                name,
+                program_type
+              ),
+              event_registrations (
+                id,
+                status,
+                registration_date
+              )
+            `)
+            .eq('id', eventId)
+            .single()
+
+          if (eventError) {
+            console.error('Error fetching event:', eventError)
+            if (eventError.code === 'PGRST116') {
+              return buildErrorResponse('Event not found', 404)
+            }
+            throw eventError
+          }
+
+          // Verify user has access to this event's club
+          if (!userClubIds.includes(event.club_id)) {
+            return buildErrorResponse('User is not a member of the event\'s club', 403)
+          }
+
+          return buildResponse(event)
+        }
+
+        // This is a request for listing events
         let query = supabaseClient
           .from('events')
           .select(`
@@ -140,7 +197,12 @@ serve(async (req) => {
 
         // Apply filters based on query parameters
         if (queryParams.club_id) {
-          query = query.eq('club_id', queryParams.club_id)
+          // Verify the requested club_id is one the user belongs to
+          const requestedClubId = parseInt(String(queryParams.club_id))
+          if (!userClubIds.includes(requestedClubId)) {
+            return buildErrorResponse('User is not a member of the requested club', 403)
+          }
+          query = query.eq('club_id', requestedClubId)
         }
         if (queryParams.program_id) {
           query = query.eq('program_id', queryParams.program_id)
