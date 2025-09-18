@@ -129,6 +129,11 @@ serve(async (req) => {
             programs (
               name,
               program_type
+            ),
+            event_registrations (
+              id,
+              status,
+              registration_date
             )
           `)
           .in('club_id', userClubIds)
