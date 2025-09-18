@@ -174,6 +174,115 @@ serve(async (req) => {
           return buildResponse(event)
         }
 
+        // Check if this is an RSVP/registration request for a specific event
+        if (isSingleEventRequest && path && pathSegments[pathSegments.length - 1] === 'rsvp') {
+          const eventId = parseInt(pathSegments[pathSegments.length - 2])
+          if (isNaN(eventId)) {
+            return buildErrorResponse('Invalid event ID', 400)
+          }
+
+          // Verify user has access to this event's club
+          const { data: event, error: eventError } = await supabaseClient
+            .from('events')
+            .select('club_id')
+            .eq('id', eventId)
+            .single()
+
+          if (eventError || !event) {
+            return buildErrorResponse('Event not found', 404)
+          }
+
+          if (!userClubIds.includes(event.club_id)) {
+            return buildErrorResponse('User is not a member of the event\'s club', 403)
+          }
+
+          // Get user's member record for this club
+          const { data: member, error: memberError } = await supabaseClient
+            .from('members')
+            .select('id')
+            .eq('user_id', user.id)
+            .eq('club_id', event.club_id)
+            .single()
+
+          if (memberError || !member) {
+            return buildErrorResponse('User is not a member of this club', 403)
+          }
+
+          // Handle RSVP operations based on request method
+          if (method === 'GET') {
+            // Get RSVPs for the event
+            const { data: rsvps, error: rsvpError } = await supabaseClient
+              .from('event_registrations')
+              .select(`
+                *,
+                members (
+                  id,
+                  first_name,
+                  last_name,
+                  email,
+                  user_id
+                )
+              `)
+              .eq('event_id', eventId)
+
+            if (rsvpError) {
+              console.error('Error fetching RSVPs:', rsvpError)
+              throw rsvpError
+            }
+
+            return buildResponse(rsvps || [])
+          }
+
+          if (method === 'POST' || method === 'PUT') {
+            // Update or create RSVP
+            const requestBody = await req.json().catch(() => ({}))
+            const { status } = requestBody
+
+            if (!status) {
+              return buildErrorResponse('Status is required', 400)
+            }
+
+            // Validate status
+            const validStatuses = ['registered', 'confirmed', 'canceled', 'waitlisted', 'attended']
+            if (!validStatuses.includes(status)) {
+              return buildErrorResponse(`Invalid status. Must be one of: ${validStatuses.join(', ')}`, 400)
+            }
+
+            // Upsert RSVP
+            const { data: rsvp, error: upsertError } = await supabaseClient
+              .from('event_registrations')
+              .upsert({
+                event_id: eventId,
+                member_id: member.id,
+                status: status,
+                registration_date: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              }, {
+                onConflict: 'event_id,member_id'
+              })
+              .select(`
+                *,
+                members (
+                  id,
+                  first_name,
+                  last_name,
+                  email,
+                  user_id
+                )
+              `)
+              .single()
+
+            if (upsertError) {
+              console.error('Error upserting RSVP:', upsertError)
+              throw upsertError
+            }
+
+            return buildResponse(rsvp)
+          }
+
+          return buildErrorResponse(`Method ${method} not allowed for RSVP`, 405)
+        }
+
         // This is a request for listing events
         let query = supabaseClient
           .from('events')
