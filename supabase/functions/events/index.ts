@@ -86,13 +86,18 @@ serve(async (req) => {
     const urlObj = new URL(url)
     const pathSegments = urlObj.pathname.split('/').filter(segment => segment !== '')
     const path = pathSegments[pathSegments.length - 1] // Get the last segment
-    const isSingleEventRequest = pathSegments.length > 1 && pathSegments[0] === 'events'
-    const isRSVPRequest = pathSegments.length > 2 && pathSegments[0] === 'events' && path === 'rsvp'
+    
+    // For Supabase Edge Functions, the path structure is: /functions/v1/events/3/rsvp
+    // So we need to find the 'events' segment and work from there
+    const eventsIndex = pathSegments.indexOf('events')
+    const isSingleEventRequest = eventsIndex >= 0 && pathSegments.length > eventsIndex + 1
+    const isRSVPRequest = eventsIndex >= 0 && pathSegments.length > eventsIndex + 2 && path === 'rsvp'
     
     console.log('Request details:', {
       pathname: urlObj.pathname,
       pathSegments,
       path,
+      eventsIndex,
       isSingleEventRequest,
       isRSVPRequest,
       method
@@ -131,11 +136,12 @@ serve(async (req) => {
     switch (method) {
       case 'GET':
         // Check if this is a request for a specific event by ID
-        if (isSingleEventRequest && path) {
+        if (isSingleEventRequest && !isRSVPRequest) {
           // This is a request for a specific event
-          const eventId = parseInt(path)
+          const eventIdString = pathSegments[eventsIndex + 1]
+          const eventId = parseInt(eventIdString)
           if (isNaN(eventId)) {
-            return buildErrorResponse('Invalid event ID', 400)
+            return buildErrorResponse(`Invalid event ID: ${eventIdString}`, 400)
           }
 
           // Get the specific event
@@ -178,9 +184,19 @@ serve(async (req) => {
 
         // Check if this is an RSVP/registration request for a specific event
         if (isRSVPRequest) {
-          const eventId = parseInt(pathSegments[pathSegments.length - 2])
+          const eventIdString = pathSegments[eventsIndex + 1]
+          const eventId = parseInt(eventIdString)
+          
+          console.log('RSVP Request details:', {
+            pathSegments,
+            eventsIndex,
+            eventIdString,
+            eventId,
+            isNaN: isNaN(eventId)
+          })
+          
           if (isNaN(eventId)) {
-            return buildErrorResponse('Invalid event ID', 400)
+            return buildErrorResponse(`Invalid event ID: ${eventIdString}`, 400)
           }
 
           // Verify user has access to this event's club
