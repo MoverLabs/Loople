@@ -85,14 +85,16 @@ serve(async (req) => {
     const { method, url } = req
     const urlObj = new URL(url)
     const pathSegments = urlObj.pathname.split('/').filter(segment => segment !== '')
-    const path = pathSegments[pathSegments.length - 1] // Get the last segment (event ID)
-    const isSingleEventRequest = pathSegments.length > 1 && pathSegments[pathSegments.length - 2] === 'events'
+    const path = pathSegments[pathSegments.length - 1] // Get the last segment
+    const isSingleEventRequest = pathSegments.length > 1 && pathSegments[0] === 'events'
+    const isRSVPRequest = pathSegments.length > 2 && pathSegments[0] === 'events' && path === 'rsvp'
     
     console.log('Request details:', {
       pathname: urlObj.pathname,
       pathSegments,
       path,
       isSingleEventRequest,
+      isRSVPRequest,
       method
     })
 
@@ -175,7 +177,7 @@ serve(async (req) => {
         }
 
         // Check if this is an RSVP/registration request for a specific event
-        if (isSingleEventRequest && path && pathSegments[pathSegments.length - 1] === 'rsvp') {
+        if (isRSVPRequest) {
           const eventId = parseInt(pathSegments[pathSegments.length - 2])
           if (isNaN(eventId)) {
             return buildErrorResponse('Invalid event ID', 400)
