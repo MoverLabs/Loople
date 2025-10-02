@@ -208,9 +208,9 @@ serve(async (req) => {
       }
 
       if (method === 'POST' || method === 'PUT') {
-        // Update or create RSVP
+        // Update or create RSVP (optionally for another member when requested by club owner)
         const requestBody = await req.json().catch(() => ({}))
-        const { status } = requestBody
+        const { status, member_id: requestedMemberId } = requestBody as { status?: string, member_id?: number }
 
         if (!status) {
           return buildErrorResponse('Status is required', 400)
@@ -222,12 +222,45 @@ serve(async (req) => {
           return buildErrorResponse(`Invalid status. Must be one of: ${validStatuses.join(', ')}`, 400)
         }
 
+        // Determine target member id for update
+        let targetMemberId = member.id
+
+        if (requestedMemberId && Number.isFinite(requestedMemberId)) {
+          // Check if requester is club owner of this event
+          const { data: clubRow, error: clubErr } = await supabaseClient
+            .from('clubs')
+            .select('owner_id')
+            .eq('id', event.club_id)
+            .single()
+
+          if (clubErr || !clubRow) {
+            return buildErrorResponse('Club not found', 404)
+          }
+
+          const isOwner = clubRow.owner_id === user.id
+          if (isOwner) {
+            // Validate the requested member id belongs to the same club
+            const { data: targetMember, error: targetMemberErr } = await supabaseClient
+              .from('members')
+              .select('id')
+              .eq('id', requestedMemberId)
+              .eq('club_id', event.club_id)
+              .single()
+
+            if (targetMemberErr || !targetMember) {
+              return buildErrorResponse('Target member not found in this club', 404)
+            }
+
+            targetMemberId = requestedMemberId
+          }
+        }
+
         // Upsert RSVP
         const { data: rsvp, error: upsertError } = await supabaseClient
           .from('event_registrations')
           .upsert({
             event_id: eventId,
-            member_id: member.id,
+            member_id: targetMemberId,
             status: status,
             registration_date: new Date().toISOString(),
             updated_at: new Date().toISOString()

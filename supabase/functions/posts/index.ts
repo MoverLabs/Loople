@@ -15,6 +15,7 @@ interface PostQueryParams {
   club_id?: number
   user_id?: string
   content_type?: string
+  event_id?: number
   page?: number
   limit?: number
   search?: string
@@ -87,7 +88,7 @@ serve(async (req) => {
     const queryParams: PostQueryParams = {}
     if (method === 'GET') {
       urlObj.searchParams.forEach((value, key) => {
-        if (key === 'page' || key === 'limit' || key === 'club_id') {
+        if (key === 'page' || key === 'limit' || key === 'club_id' || key === 'event_id') {
           queryParams[key] = parseInt(value)
         } else if (key === 'user_id') {
           queryParams[key] = value
@@ -213,6 +214,9 @@ async function handleGetPosts(supabaseClient: any, userClubIds: number[], queryP
   }
   if (queryParams.content_type) {
     query = query.eq('content_type', queryParams.content_type)
+  }
+  if (queryParams.event_id) {
+    query = query.eq('event_id', queryParams.event_id)
   }
   
   // Advanced search functionality
