@@ -11,6 +11,7 @@ ALTER TABLE posts DISABLE ROW LEVEL SECURITY;
 ALTER TABLE comments DISABLE ROW LEVEL SECURITY;
 ALTER TABLE reactions DISABLE ROW LEVEL SECURITY;
 ALTER TABLE media_attachments DISABLE ROW LEVEL SECURITY;
+ALTER TABLE user_preferences DISABLE ROW LEVEL SECURITY;
 
 -- Remove all existing policies
 DO $$ 
@@ -66,6 +67,7 @@ ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE comments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE media_attachments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_preferences ENABLE ROW LEVEL SECURITY;
 
 -- Service role bypass for all tables
 CREATE POLICY "Service role bypass"
@@ -118,6 +120,10 @@ CREATE POLICY "Service role bypass"
 
 CREATE POLICY "Service role bypass"
     ON storage.objects FOR ALL
+    USING (auth.jwt() ->> 'role' = 'service_role');
+
+CREATE POLICY "Service role bypass"
+    ON user_preferences FOR ALL
     USING (auth.jwt() ->> 'role' = 'service_role');
 
 -- Basic policies for clubs
@@ -541,4 +547,22 @@ CREATE POLICY "Post media files can be deleted by post authors"
             AND p.user_id = auth.uid()
             AND p.is_active = true
         )
-    ); 
+    );
+
+-- User preferences policies
+CREATE POLICY "Users can view their own preferences"
+    ON user_preferences FOR SELECT
+    USING (user_id = auth.uid()::text);
+
+CREATE POLICY "Users can create their own preferences"
+    ON user_preferences FOR INSERT
+    WITH CHECK (user_id = auth.uid()::text);
+
+CREATE POLICY "Users can update their own preferences"
+    ON user_preferences FOR UPDATE
+    USING (user_id = auth.uid()::text)
+    WITH CHECK (user_id = auth.uid()::text);
+
+CREATE POLICY "Users can delete their own preferences"
+    ON user_preferences FOR DELETE
+    USING (user_id = auth.uid()::text); 
