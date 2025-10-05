@@ -11,6 +11,7 @@ ALTER TABLE posts DISABLE ROW LEVEL SECURITY;
 ALTER TABLE comments DISABLE ROW LEVEL SECURITY;
 ALTER TABLE reactions DISABLE ROW LEVEL SECURITY;
 ALTER TABLE media_attachments DISABLE ROW LEVEL SECURITY;
+ALTER TABLE storage.objects DISABLE ROW LEVEL SECURITY;
 ALTER TABLE user_preferences DISABLE ROW LEVEL SECURITY;
 
 -- Remove all existing policies
@@ -67,6 +68,7 @@ ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE comments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE media_attachments ENABLE ROW LEVEL SECURITY;
+-- storage.objects is managed by storage extension but we still define policies; no ENABLE needed here
 ALTER TABLE user_preferences ENABLE ROW LEVEL SECURITY;
 
 -- Service role bypass for all tables
@@ -121,6 +123,34 @@ CREATE POLICY "Service role bypass"
 CREATE POLICY "Service role bypass"
     ON storage.objects FOR ALL
     USING (auth.jwt() ->> 'role' = 'service_role');
+
+-- Avatars bucket policies
+CREATE POLICY "Avatars are viewable by anyone"
+    ON storage.objects FOR SELECT
+    USING (
+        bucket_id = 'avatars'
+    );
+
+CREATE POLICY "Users can upload their avatar"
+    ON storage.objects FOR INSERT
+    WITH CHECK (
+        bucket_id = 'avatars' AND
+        owner = auth.uid()
+    );
+
+CREATE POLICY "Users can update their avatar"
+    ON storage.objects FOR UPDATE
+    USING (
+        bucket_id = 'avatars' AND
+        owner = auth.uid()
+    );
+
+CREATE POLICY "Users can delete their avatar"
+    ON storage.objects FOR DELETE
+    USING (
+        bucket_id = 'avatars' AND
+        owner = auth.uid()
+    );
 
 CREATE POLICY "Service role bypass"
     ON user_preferences FOR ALL
