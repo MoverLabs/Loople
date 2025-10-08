@@ -17,6 +17,14 @@ interface UpdateUserProfileRequest {
   last_name?: string
   phone?: string
   avatar_url?: string
+  username?: string
+  bio?: string
+  cover_url?: string
+  country?: string
+  street_address?: string
+  city?: string
+  region?: string
+  postal_code?: string
 }
 
 // User preferences request type
@@ -87,6 +95,14 @@ serve(async (req) => {
               last_name,
               phone,
               avatar_url,
+              username,
+              bio,
+              cover_url,
+              country,
+              street_address,
+              city,
+              region,
+              postal_code,
               created_at,
               updated_at,
               role:roles(name, permissions)
@@ -130,26 +146,155 @@ serve(async (req) => {
         const requestData: UpdateUserProfileRequest = await req.json()
         console.log('Request data:', requestData)
 
-        // Validate fields if provided
-        if (requestData.first_name !== undefined && !requestData.first_name.trim()) {
-          throw new Error('First name cannot be empty')
+        // Build updates object with gentle validation and UX-friendly behavior
+        const fieldErrors: Record<string, string> = {}
+        const updates: Record<string, unknown> = {}
+
+        // first_name: ignore if empty string; only update when non-empty provided
+        if (requestData.first_name !== undefined) {
+          const v = (requestData.first_name || '').trim()
+          if (v.length > 0) {
+            updates.first_name = v
+          }
         }
-        if (requestData.last_name !== undefined && !requestData.last_name.trim()) {
-          throw new Error('Last name cannot be empty')
+
+        // last_name: ignore if empty string; only update when non-empty provided
+        if (requestData.last_name !== undefined) {
+          const v = (requestData.last_name || '').trim()
+          if (v.length > 0) {
+            updates.last_name = v
+          }
         }
-        if (requestData.phone !== undefined && requestData.phone && !/^\(\d{3}\) \d{3}-\d{4}$/.test(requestData.phone)) {
-          throw new Error('Invalid phone format. Use format: (XXX) XXX-XXXX')
+
+        // phone: allow null when empty; validate when provided non-empty
+        if (requestData.phone !== undefined) {
+          const v = (requestData.phone || '').trim()
+          if (v.length === 0) {
+            updates.phone = null
+          } else if (!/^\(\d{3}\) \d{3}-\d{4}$/.test(v)) {
+            fieldErrors.phone = 'Invalid phone format. Use (XXX) XXX-XXXX'
+          } else {
+            updates.phone = v
+          }
         }
-        if (requestData.avatar_url !== undefined && requestData.avatar_url && !/^https?:\/\/.+/.test(requestData.avatar_url)) {
-          throw new Error('Please enter a valid URL for avatar')
+
+        // avatar_url: allow null when empty; validate URL when provided non-empty
+        if (requestData.avatar_url !== undefined) {
+          const v = (requestData.avatar_url || '').trim()
+          if (v.length === 0) {
+            updates.avatar_url = null
+          } else if (!/^https?:\/\/.+/.test(v)) {
+            fieldErrors.avatar_url = 'Please enter a valid URL for avatar'
+          } else {
+            updates.avatar_url = v
+          }
+        }
+
+        // username: trim, lower uniqueness is enforced by index; allow null when empty
+        if (requestData.username !== undefined) {
+          const v = (requestData.username || '').trim()
+          if (v.length === 0) {
+            updates.username = null
+          } else if (!/^[A-Za-z0-9_\.\-]{3,30}$/.test(v)) {
+            fieldErrors.username = 'Username must be 3-30 chars: letters, numbers, underscore, dot, hyphen'
+          } else {
+            updates.username = v
+          }
+        }
+
+        // bio: allow null when empty; limit length gently
+        if (requestData.bio !== undefined) {
+          const v = (requestData.bio || '').trim()
+          if (v.length === 0) {
+            updates.bio = null
+          } else if (v.length > 300) {
+            fieldErrors.bio = 'Bio must be 300 characters or fewer'
+          } else {
+            updates.bio = v
+          }
+        }
+
+        // cover_url: allow null when empty; validate URL when provided
+        if (requestData.cover_url !== undefined) {
+          const v = (requestData.cover_url || '').trim()
+          if (v.length === 0) {
+            updates.cover_url = null
+          } else if (!/^https?:\/\/.+/.test(v)) {
+            fieldErrors.cover_url = 'Please enter a valid URL for cover image'
+          } else {
+            updates.cover_url = v
+          }
+        }
+
+        // Address fields: trim, allow null when empty
+        const optTrim = (s?: string) => (s || '').trim()
+        if (requestData.country !== undefined) {
+          const v = optTrim(requestData.country)
+          updates.country = v.length === 0 ? null : v
+        }
+        if (requestData.street_address !== undefined) {
+          const v = optTrim(requestData.street_address)
+          updates.street_address = v.length === 0 ? null : v
+        }
+        if (requestData.city !== undefined) {
+          const v = optTrim(requestData.city)
+          updates.city = v.length === 0 ? null : v
+        }
+        if (requestData.region !== undefined) {
+          const v = optTrim(requestData.region)
+          updates.region = v.length === 0 ? null : v
+        }
+        if (requestData.postal_code !== undefined) {
+          const v = optTrim(requestData.postal_code)
+          updates.postal_code = v.length === 0 ? null : v
+        }
+
+        if (Object.keys(fieldErrors).length > 0) {
+          return new Response(
+            JSON.stringify({ success: false, error: 'Validation error', field_errors: fieldErrors }),
+            { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          )
+        }
+
+        // Only perform update if there is at least one field to update
+        if (Object.keys(updates).length === 0) {
+          console.log('No profile fields to update; returning current profile')
+          const { data: currentUser, error: getErr } = await supabaseClient
+            .from('users')
+            .select(`
+              id,
+              email,
+              first_name,
+              last_name,
+              phone,
+              avatar_url,
+              username,
+              bio,
+              cover_url,
+              country,
+              street_address,
+              city,
+              region,
+              postal_code,
+              created_at,
+              updated_at,
+              role:roles(name, permissions)
+            `)
+            .eq('id', user.id)
+            .single()
+          if (getErr) {
+            console.error('Error fetching current user:', getErr)
+            throw getErr
+          }
+          return buildResponse(currentUser)
         }
 
         // Update user profile
-        console.log('Updating user profile...')
+        console.log('Updating user profile with:', updates)
         const { data: updatedUser, error: updateError } = await supabaseClient
           .from('users')
           .update({
-            ...requestData,
+            ...updates,
             updated_at: new Date().toISOString(),
           })
           .eq('id', user.id)
@@ -160,6 +305,14 @@ serve(async (req) => {
             last_name,
             phone,
             avatar_url,
+            username,
+            bio,
+            cover_url,
+            country,
+            street_address,
+            city,
+            region,
+            postal_code,
             created_at,
             updated_at,
             role:roles(name, permissions)
@@ -210,7 +363,7 @@ serve(async (req) => {
     }
   } catch (error) {
     console.error('Error in users endpoint:', error)
-    const isAuthError = error.message.includes('Authentication required') ||
+    const isAuthError = (error as Error).message.includes('Authentication required') ||
                        error.message.includes('JWT expired') ||
                        error.message.includes('invalid token') ||
                        error.message.includes('Invalid JWT')
@@ -218,8 +371,8 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: false,
-        error: error.message,
-        details: error.stack
+        error: (error as Error).message,
+        details: (error as Error).stack
       }),
       {
         status: isAuthError ? 401 : 400,
