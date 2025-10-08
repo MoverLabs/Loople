@@ -151,6 +151,34 @@ CREATE POLICY "Users can delete their avatar"
         owner = auth.uid()
     );
 
+-- Covers bucket policies
+CREATE POLICY "Covers are viewable by anyone"
+    ON storage.objects FOR SELECT
+    USING (
+        bucket_id = 'covers'
+    );
+
+CREATE POLICY "Users can upload their cover"
+    ON storage.objects FOR INSERT
+    WITH CHECK (
+        bucket_id = 'covers' AND
+        owner = auth.uid()
+    );
+
+CREATE POLICY "Users can update their cover"
+    ON storage.objects FOR UPDATE
+    USING (
+        bucket_id = 'covers' AND
+        owner = auth.uid()
+    );
+
+CREATE POLICY "Users can delete their cover"
+    ON storage.objects FOR DELETE
+    USING (
+        bucket_id = 'covers' AND
+        owner = auth.uid()
+    );
+
 CREATE POLICY "Service role bypass"
     ON user_preferences FOR ALL
     USING (auth.jwt() ->> 'role' = 'service_role');
