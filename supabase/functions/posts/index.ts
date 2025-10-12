@@ -288,7 +288,7 @@ async function handleGetPosts(supabaseClient: any, userClubIds: number[], queryP
   const userIds = [...new Set(posts.map((post: any) => post.user_id))]
   const { data: postUsers } = await supabaseClient
     .from('users')
-    .select('id, email, first_name, last_name')
+    .select('id, email, first_name, last_name, avatar_url, username')
     .in('id', userIds)
 
   // Create a map for quick user lookup
@@ -323,7 +323,9 @@ async function handleGetPosts(supabaseClient: any, userClubIds: number[], queryP
         id: post.user_id,
         email: '',
         first_name: 'Unknown',
-        last_name: 'User'
+        last_name: 'User',
+        avatar_url: null,
+        username: null
       },
       reaction_count: postReactions.length,
       comment_count: postComments.length,
@@ -398,7 +400,9 @@ async function handleCreatePost(supabaseClient: any, req: Request, userId: strin
       id: user.id,
       email: user.email,
       first_name: userData.first_name,
-      last_name: userData.last_name
+      last_name: userData.last_name,
+      avatar_url: userData.avatar_url,
+      username: userData.username
     }
   }
 
@@ -428,7 +432,9 @@ async function handleGetComments(supabaseClient: any, postId: number, userClubId
         id,
         email,
         first_name,
-        last_name
+        last_name,
+        avatar_url,
+        username
       )
     `)
     .eq('post_id', postId)
@@ -475,7 +481,7 @@ async function handleCreateComment(supabaseClient: any, req: Request, userId: st
   // Get user data
   const { data: userData } = await supabaseClient
     .from('users')
-    .select('id, email, first_name, last_name')
+    .select('id, email, first_name, last_name, avatar_url, username')
     .eq('id', userId)
     .single()
 
@@ -493,7 +499,9 @@ async function handleCreateComment(supabaseClient: any, req: Request, userId: st
         id,
         email,
         first_name,
-        last_name
+        last_name,
+        avatar_url,
+        username
       )
     `)
     .single()
