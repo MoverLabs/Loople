@@ -98,7 +98,7 @@ export const getUserDetails = async (supabaseClient: any, userId: string) => {
   console.log('Getting user details for:', userId)
   const { data: userData, error: userDataError } = await supabaseClient
     .from('users')
-    .select('first_name, last_name, email, phone')
+    .select('first_name, last_name, email, phone, avatar_url, username')
     .eq('id', userId)
     .single()
 

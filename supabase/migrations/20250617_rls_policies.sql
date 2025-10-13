@@ -123,7 +123,11 @@ CREATE POLICY "Service role bypass"
     ON storage.objects FOR ALL
     USING (auth.jwt() ->> 'role' = 'service_role');
 
--- Avatars bucket policies
+-- Avatars bucket policies (drop-if-exists to allow re-runs)
+DROP POLICY IF EXISTS "Avatars are viewable by anyone" ON storage.objects;
+DROP POLICY IF EXISTS "Users can upload their avatar" ON storage.objects;
+DROP POLICY IF EXISTS "Users can update their avatar" ON storage.objects;
+DROP POLICY IF EXISTS "Users can delete their avatar" ON storage.objects;
 CREATE POLICY "Avatars are viewable by anyone"
     ON storage.objects FOR SELECT
     USING (
@@ -151,7 +155,11 @@ CREATE POLICY "Users can delete their avatar"
         owner = auth.uid()
     );
 
--- Covers bucket policies
+-- Covers bucket policies (drop-if-exists to allow re-runs)
+DROP POLICY IF EXISTS "Covers are viewable by anyone" ON storage.objects;
+DROP POLICY IF EXISTS "Users can upload their cover" ON storage.objects;
+DROP POLICY IF EXISTS "Users can update their cover" ON storage.objects;
+DROP POLICY IF EXISTS "Users can delete their cover" ON storage.objects;
 CREATE POLICY "Covers are viewable by anyone"
     ON storage.objects FOR SELECT
     USING (
@@ -265,6 +273,23 @@ CREATE POLICY "Members can be deleted by club owners"
 CREATE POLICY "Users can view their own data"
     ON users FOR SELECT
     USING (id::text = auth.uid()::text);
+
+-- Allow authenticated users to view basic user records when they share a club membership
+-- This enables feeds to show author names without exposing users outside shared clubs
+DROP POLICY IF EXISTS "Users viewable by same-club members (basic fields)" ON users;
+CREATE POLICY "Users viewable by same-club members (basic fields)"
+    ON users FOR SELECT
+    TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1
+            FROM members m_req
+            JOIN members m_tgt ON m_tgt.club_id = m_req.club_id
+            WHERE m_req.user_id::text = auth.uid()::text
+              AND m_tgt.user_id = users.id
+        )
+        OR users.id::text = auth.uid()::text
+    );
 
 CREATE POLICY "Users can update their own data"
     ON users FOR UPDATE
