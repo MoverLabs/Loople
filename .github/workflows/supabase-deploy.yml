@@ -45,37 +45,23 @@ jobs:
           echo "Linking to project: ${{ env.SUPABASE_PROJECT_ID }}"
           supabase link --project-ref ${{ env.SUPABASE_PROJECT_ID }} --password ${{ env.SUPABASE_DB_PASSWORD }}
 
-      - name: Reset Database (only on staging)
-        if: github.ref == 'refs/heads/staging'
-        run: |
-          echo "Resetting staging database..."
-          echo "y" | supabase db reset --linked
-
       - name: Apply Schema Migrations
         if: github.event_name == 'push'
         run: |
           echo "Applying schema migrations..."
           supabase db push
 
-      # - name: Run Seed Script (only on staging)
-      #   if: github.ref == 'refs/heads/staging'
+      # - name: Update Email Templates
+      #   if: github.event_name == 'push'
+      #   working-directory: scripts
+      #   env:
+      #     SUPABASE_PROJECT_ID: ${{ env.SUPABASE_PROJECT_ID }}
+      #     SUPABASE_ACCESS_TOKEN: ${{ env.SUPABASE_ACCESS_TOKEN }}
       #   run: |
-      #     echo "Running seed script..."
-      #     # Get the database hostname
-      #     DB_HOST="db.${{ env.SUPABASE_PROJECT_ID }}.supabase.co"
-      #     echo "Database host: $DB_HOST"
-          
-      #     # Resolve the IP address
-      #     DB_IP=$(dig +short $DB_HOST | grep -v ':' | head -n 1)
-      #     echo "Database IP: $DB_IP"
-          
-      #     if [ -z "$DB_IP" ]; then
-      #       echo "Failed to resolve database IP address"
-      #       exit 1
-      #     fi
-          
-      #     # Run the seed script using the IP address
-      #     PGPASSWORD="${{ env.SUPABASE_DB_PASSWORD }}" psql "host=$DB_IP port=5432 dbname=postgres user=postgres" -f supabase/seed.sql
+      #     echo "Installing dependencies..."
+      #     npm install
+      #     echo "Updating email templates..."
+      #     npx tsx update-email-templates.ts
 
       - name: Deploy Supabase Edge Functions
         if: github.event_name == 'push'
@@ -86,25 +72,43 @@ jobs:
           
           echo "Functions directory: $FUNCTIONS_DIR"
           
+          # Deploy functions
           for d in */ ; do
-            if [ -d "$d" ] && [[ ! "$d" =~ ^_.*/ ]]; then
-              func_name=${d%/}
-              echo "Checking function: $func_name"
+            if [[ ! "$d" =~ ^_.*/ ]]; then  # Skip _shared and other utility folders
+              func_dir=${d%/}  # Remove trailing slash
               
-              if [ -f "$func_name/index.ts" ]; then
-                echo "Found index.ts in $func_name"
-                echo "Full path: $FUNCTIONS_DIR/$func_name/index.ts"
-                
-                # Deploy from the root directory
+              # First check for index.ts in the directory (main endpoint)
+              if [ -f "$func_dir/index.ts" ]; then
+                echo "Deploying main endpoint: $func_dir"
                 cd "$GITHUB_WORKSPACE"
-                echo "Deploying function: $func_name"
-                supabase functions deploy "$func_name" --project-ref ${{ env.SUPABASE_PROJECT_ID }}
+                supabase functions deploy "$func_dir" --project-ref ${{ env.SUPABASE_PROJECT_ID }}
                 cd "$FUNCTIONS_DIR"
-              else
-                echo "Warning: index.ts not found in $func_name"
-                ls -la "$FUNCTIONS_DIR/$func_name"
               fi
-            else
-              echo "Skipping directory: $d (starts with underscore or not a directory)"
+              
+              # Then check for other .ts files (sub-endpoints)
+              for ts_file in "$func_dir"/*.ts; do
+                if [ -f "$ts_file" ] && [ "$(basename "$ts_file")" != "index.ts" ]; then
+                  # Get the filename without .ts
+                  func_name=$(basename "$ts_file" .ts)
+                  # Create the endpoint name (e.g., clubs/join.ts -> clubs-join)
+                  endpoint_name="$func_dir-$func_name"
+                  
+                  echo "Found sub-endpoint: $ts_file"
+                  echo "Deploying as: $endpoint_name"
+                  
+                  # Create a temporary directory for this endpoint
+                  temp_dir="$FUNCTIONS_DIR/$endpoint_name"
+                  mkdir -p "$temp_dir"
+                  cp "$ts_file" "$temp_dir/index.ts"
+                  
+                  # Deploy from the temporary directory
+                  cd "$GITHUB_WORKSPACE"
+                  supabase functions deploy "$endpoint_name" --project-ref ${{ env.SUPABASE_PROJECT_ID }}
+                  cd "$FUNCTIONS_DIR"
+                  
+                  # Clean up
+                  rm -rf "$temp_dir"
+                fi
+              done
             fi
           done 

@@ -7,9 +7,10 @@ export enum ConversationType {
 
 export enum EventType {
   PRACTICE = 'practice',
-  MEET = 'meet',
-  FUNDRAISER = 'fundraiser',
-  SOCIAL = 'social'
+  COMPETITION = 'competition',
+  MEETING = 'meeting',
+  SOCIAL = 'social',
+  OTHER = 'other'
 }
 
 export enum MemberType {
@@ -21,7 +22,8 @@ export enum MemberType {
 export enum MembershipStatus {
   ACTIVE = 'active',
   INACTIVE = 'inactive',
-  SUSPENDED = 'suspended'
+  SUSPENDED = 'suspended',
+  PENDING = 'pending'
 }
 
 export enum MessageContentType {
@@ -31,9 +33,9 @@ export enum MessageContentType {
 }
 
 export enum ParticipantRole {
-  ADMIN = 'admin',
-  MEMBER = 'member',
-  READ_ONLY = 'read_only'
+  ADMIN = 1,
+  MEMBER = 2,
+  SWIMMER = 3
 }
 
 export enum PaymentStatus {
